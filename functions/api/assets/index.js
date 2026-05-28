@@ -14,7 +14,11 @@ export async function onRequestGet({ env }) {
   let cursor = undefined
 
   do {
-    const result = await env.STORAGE.list({ prefix: 'day-', cursor })
+    const result = await env.STORAGE.list({
+      prefix: 'day-',
+      cursor,
+      include: ['customMetadata'],
+    })
     for (const obj of result.objects) {
       // Key shape: day-<id>/<category>/<filename>
       const parts = obj.key.split('/')
