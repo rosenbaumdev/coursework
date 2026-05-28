@@ -1,0 +1,7 @@
+name = "coursework"
+compatibility_date = "2025-12-01"
+pages_build_output_dir = "./dist"
+
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "coursework-assets"

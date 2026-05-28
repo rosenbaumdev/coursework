@@ -1,0 +1,10 @@
+node_modules
+dist
+storage
+.DS_Store
+.vite
+*.log
+.env
+.env.local
+.claude/
+.wrangler/

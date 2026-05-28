@@ -1,0 +1,28 @@
+{
+  "name": "jordan-coursework",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:full": "wrangler pages dev --proxy 5173 --r2 STORAGE=coursework-assets -- vite",
+    "build": "vite build",
+    "preview": "wrangler pages dev dist --r2 STORAGE=coursework-assets",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name coursework"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^6.26.2",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "vite": "^5.4.8",
+    "wrangler": "^4.95.0"
+  }
+}

@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    @apply bg-paper text-ink font-sans;
+  }
+}
+
+@layer components {
+  .notes-panel {
+    transition: grid-template-rows 220ms ease, opacity 180ms ease;
+  }
+  .check-pop {
+    transition: transform 140ms ease, background-color 140ms ease, border-color 140ms ease;
+  }
+  .check-pop:active {
+    transform: scale(0.92);
+  }
+}

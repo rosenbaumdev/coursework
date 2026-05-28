@@ -1,0 +1,78 @@
+# Architectural Decisions
+
+## Coursework loaded from `public/coursework.md` (not hardcoded) — 2026-05-23
+**What:** The 21-day curriculum lives in `public/coursework.md` as frontmatter-delimited blocks, fetched at runtime and parsed by `src/data/parseCourseWork.js`. The React code never sees the curriculum content directly.
+**Why:** CLAUDE.md mandates this so the coursework can be swapped (e.g. arc-specific rewrites) without touching React. The original build prompt called for a hardcoded `CURRICULUM` constant, but CLAUDE.md is the source of truth and the swap-without-rebuild property is genuinely useful — Jordan picking his arc will generate a new MD file.
+**Alternatives considered:** (1) Hardcode the array per the build prompt — rejected, contradicts CLAUDE.md and locks the curriculum to a code release. (2) Hybrid (hardcoded with seam for later parser) — rejected as half-finished work; CLAUDE.md says no half-wired components.
+**Confidence:** 95%. Confirmed with Jonathan before building.
+
+## Frontmatter parser: split on `---` lines, alternating sections — 2026-05-23
+**What:** `parseCourseWork.js` splits the document on `/^\s*---\s*$/m`. Resulting array is `["", frontmatter, body, frontmatter, body, ...]` so odd indices are frontmatter and `i+1` is body. Frontmatter is parsed as flat `key: value` pairs (no nesting, no quoting).
+**Why:** Custom MD frontmatter format is intentionally minimal — only `day`, `week`, `title`, `description` are required. A real YAML parser would pull in a dependency and add a parsing surface for problems that don't exist here.
+**Alternatives considered:** `gray-matter` (the standard frontmatter lib) — rejected, adds a dependency for ~20 lines of parsing we don't need. The CLAUDE.md "minimal surface area" rule pushed against new deps.
+**Confidence:** 85%. The risk is if the body content ever contains a line that is literally `---` — it would be interpreted as a separator. Acceptable for now; if it becomes a problem, switch to a fenced delimiter like `+++` or use `gray-matter`.
+
+## Tailwind for styling, no UI component library — 2026-05-23
+**What:** Tailwind 3 with extended theme colors (`accent`, `dad`, `ink`, `paper`, `rule`, `inset`, `muted`) and Google Fonts (DM Sans body, DM Mono labels/numbers). No Radix, shadcn, or other UI lib.
+**Why:** CLAUDE.md design rules are very specific (deep blue accent, slate dad accent, DM Mono/Sans, no purple gradients, no Inter). A UI lib would fight those choices. The app is small enough that hand-rolled components beat the indirection.
+**Alternatives considered:** CSS Modules (PRD allowed it) — rejected, Tailwind keeps the design tokens in one place (`tailwind.config.js`) which makes the "single accent color" rule enforceable at a glance.
+**Confidence:** 90%.
+
+## Two routes only, no auth, role from `useLocation()` — 2026-05-23
+**What:** `/` = Jordan, `/dad` = Jonathan. `useLocation().pathname.startsWith('/dad')` derives an `isDAD` boolean. Notes posted from each view are authored accordingly. No login screen, no role switcher.
+**Why:** Explicitly mandated by CLAUDE.md and the PRD. Auth is out of scope; the URL is the role.
+**Alternatives considered:** None viable — adding auth would violate scope and CLAUDE.md.
+**Confidence:** 100%.
+
+## GitHub mirror for claude-prompt files — 2026-05-25
+**What:** claude-prompt category files are auto-mirrored to `github.com/rosenbaumdev/coursework` (public repo) on upload. Launcher uses the `raw.githubusercontent.com` URL in the pointer prompt sent to claude.ai. Local storage stays the source of truth; mirror is one-way downstream.
+**Why:** claude.ai's WebFetch tool has an implicit domain allowlist. `coursework.rosenbaum.us` (our domain) is not on it; `raw.githubusercontent.com` is. Without the mirror, the "Open in claude.ai" button generates a pointer prompt that Claude can't fetch. With the mirror, Claude fetches from GitHub raw and the session starts.
+**Alternatives considered:** (1) jsDelivr CDN — rejected; GitHub raw is just as universally allowlisted and avoids an extra hop / 12h cache. (2) Cloudflare Pages — rejected; requires separate deploy pipeline and Pages domains' allowlist coverage is uncertain. (3) Stop fighting WebFetch, make button "copy + open" only — rejected; user wanted "one click → spawn Claude session" and the mirror achieves that.
+**Confidence:** 95%. Risk: GitHub repo size could bloat if someone uploads huge md/txt files. Mitigated by the category-extension filter (md/txt only, no audio/PDFs).
+**Architecture rules baked in:**
+- Local is source of truth. Never sync GitHub → local.
+- Only `claude-prompt` category mirrored. Podcasts/PDFs stay local-only.
+- Sync failures don't fail uploads (logged + visible in UI badge).
+- Sync is auto on upload (no "click to sync" button).
+- State persisted in `~/.coursework-mirror-state.json` so manifest builder can include it.
+- See [[file-cms-backend]] for related upload handler.
+
+## Public exposure via Cloudflare Tunnel — 2026-05-24
+**What:** App publicly reachable at `https://coursework.rosenbaum.us` via cloudflared tunnel → localhost:4174. WAF custom rule on `coursework.rosenbaum.us` skips Super Bot Fight Mode + Browser Integrity Check. Bot Fight Mode disabled zone-wide. Cloudflare "Manage your robots.txt" set to allow AI bots.
+**Why:** Personal access (Jonathan + Jordan from any device, any network) without exposing jserver's IP directly. Cloudflare provides TLS, DDoS protection, and the tunnel handles NAT traversal so no router port-forwarding needed.
+**Alternatives considered:** (1) Cloudflare Pages + Workers — rejected; backend requires filesystem (uploads) which Workers don't have natively. (2) Tailscale Funnel — rejected; .ts.net hostnames are ugly and Funnel paths are limited. (3) Caddy reverse proxy with port forward — rejected; exposes jserver IP and requires router config.
+**Confidence:** 90%. Tunnel currently runs as background task within Claude Code session (dies when session ends). Persistence pending (launchd).
+**Operational notes:**
+- Use `--protocol http2` (NOT QUIC). Comcast/home networks drop UDP, causing constant tunnel flapping.
+- Tunnel token stored in command args; lives in this conversation history. Can be rotated in CF dashboard if needed.
+- Free CF plan has no per-hostname Bot Fight Mode override; had to disable zone-wide. Acceptable since other subdomains have their own auth.
+
+## Backend added (Express) — 2026-05-23
+**What:** Small Express server at `server/index.js` serves the built React app, file CMS API (`POST/GET/DELETE /api/assets`), and uploaded assets at `/files/*`. Storage is filesystem at `storage/day-<id>/<category>/<filename>` (gitignored). Multer handles uploads with 100 MB limit and per-category extension allowlists.
+**Why:** The original "no backend, localStorage only" rule collapsed the moment Jonathan needed to upload podcasts/PDFs/PPTXs and have them reachable from any tailnet device. localStorage can't store or share real media files. The smallest backend that solves it is Express + multer — no DB, no auth, no sessions.
+**Alternatives considered:** (1) Manual file placement over SSH — rejected, Jonathan explicitly wants a browser UI. (2) External object storage (S3/R2) — rejected, adds credentials + a third-party dependency for a personal-scale problem. (3) localStorage with base64 — not viable: 5–10 MB browser quota, can't share between Jordan's and Dad's browsers.
+**Confidence:** 95%. Confirmed with Jonathan before building. The remaining 5% is whether 100 MB / file is the right limit (PPTX decks with embedded media can blow past it).
+
+## Sub-days nested under parent — 2026-05-23
+**What:** Days with fractional IDs (`0.1`, `0.2`) are children of their integer parent (`0`). Parser stores `id` as a string and `parentId` (also string or null). `buildDayTree(days)` returns top-level days each with `children: [...]`. Sub-day cards render inside the parent's expanded panel, smaller and without the "current day" accent. Top-level day count is what counts toward "X / N complete" — sub-days are bonus content.
+**Why:** Jonathan has supplementary materials (audio, decks) keyed to half-days. Visual hierarchy should match conceptual hierarchy. Flat siblings would make Day 0.1 look as important as Day 1, which it isn't.
+**Alternatives considered:** Flat sibling list with string IDs — rejected, hides the parent/child relationship in the UI.
+**Confidence:** 90%. Open question: should completing all of a parent's sub-days auto-complete the parent? Currently independent. Easy to add later if Jonathan wants it.
+
+## Auto-link assets by directory layout — 2026-05-23
+**What:** No asset manifest file. The backend scans `storage/` on every `GET /api/assets` and returns a manifest grouped by day → category → file. Uploads pick day + category + file via the `/dad` UI; the backend writes to the corresponding directory; the frontend re-fetches the manifest and re-renders. To remove a file, click delete (DELETE endpoint unlinks it).
+**Why:** A separate manifest JSON would have to stay in sync with the filesystem, creating a class of bugs where the file exists but isn't listed (or vice versa). Filesystem-as-truth eliminates that. Performance is fine at this scale (dozens of files, not thousands).
+**Alternatives considered:** SQLite manifest with file metadata — rejected, premature for the scale.
+**Confidence:** 95%. Would revisit only if asset count grows to thousands.
+
+## Sub-day editing happens in public/coursework.md directly — 2026-05-23
+**What:** `JORDAN_COURSEWORK.md` + `scripts/build-coursework.mjs` were a one-shot seed. Going forward, `public/coursework.md` is the source of truth for day content — edited directly. Adding a sub-day = append a `---\nday: 0.1\nweek: 1\ntitle: ...\ndescription: ...\n---\n<body>` block.
+**Why:** Re-running the build script would overwrite hand-edited sub-day blocks. Two-stage authoring (edit source MD → re-run script) was useful for the bulk import but creates a footgun for ongoing content edits.
+**Alternatives considered:** Make the build script idempotent (merge instead of overwrite) — rejected as added complexity for a tool that only runs once.
+**Confidence:** 85%. If Jonathan ends up wanting to bulk-regenerate from a new source, we revisit.
+
+## localStorage shape matches PRD exactly — 2026-05-23
+**What:** Two keys: `arc` (plain string) and `days` (object keyed by stringified day id, each value `{ completed, completedAt, notes[] }`). Days with no interaction have no entry — the hook returns a default object via `getDay`.
+**Why:** PRD specifies this shape; sparse storage keeps the JSON small and means the "default state" is defined in one place (the hook), not duplicated across the data.
+**Alternatives considered:** Pre-populating all 21 entries on first load — rejected, just wastes bytes and creates a migration headache if the day count ever changes.
+**Confidence:** 95%. The one risk is downstream code forgetting to use `getDay()` and reading `days[id]` directly. Mitigated by the hook being the only thing that touches `days`.
