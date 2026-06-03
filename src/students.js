@@ -31,6 +31,8 @@ export const STUDENTS = {
         mdFile: 'content-creator.md',
         r2Prefix: 'content-creator/',
         mirrorPrefix: 'content-creator/',
+        // No arc-selection day on this course; defaultArc is the framing.
+        defaultArc: 'Perimenopause + Women’s Wellness',
       },
     ],
   },
