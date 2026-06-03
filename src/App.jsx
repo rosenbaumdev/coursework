@@ -1,21 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, Route, Routes, useLocation } from 'react-router-dom'
+import { Link, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import Header from './components/Header.jsx'
 import ArcSelector from './components/ArcSelector.jsx'
 import DayCard from './components/DayCard.jsx'
 import FilesView from './components/FilesView.jsx'
+import Splash from './components/Splash.jsx'
 import { useTrackerData } from './hooks/useTrackerData.js'
 import { useAssets } from './hooks/useAssets.js'
 import { buildDayTree, parseCourseWork } from './data/parseCourseWork.js'
-import { COURSE_SLUG, COURSE_TITLE } from './courseConfig.js'
+import { getStudent } from './students.js'
 
-function useCoursework() {
+function useCoursework(mdFile) {
   const [days, setDays] = useState([])
   const [error, setError] = useState(null)
 
   useEffect(() => {
+    if (!mdFile) return
     let cancelled = false
-    fetch(`/${COURSE_SLUG}.md`)
+    fetch(`/${mdFile}`)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.text()
@@ -31,7 +33,7 @@ function useCoursework() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [mdFile])
 
   return { days, error }
 }
@@ -63,12 +65,10 @@ function InlineArcPicker({ onSelect }) {
   )
 }
 
-function TrackerView() {
-  const location = useLocation()
-  const isDAD = location.pathname.startsWith('/dad')
-  const { arc, setArc, clearArc, getDay, setCompleted, addNote } = useTrackerData()
-  const { days: flatDays, error } = useCoursework()
-  const { manifest, upload, remove } = useAssets()
+function TrackerView({ student, course, isDAD }) {
+  const { arc, setArc, clearArc, getDay, setCompleted, addNote } = useTrackerData(student.slug)
+  const { days: flatDays, error } = useCoursework(course.mdFile)
+  const { manifest, upload, remove } = useAssets(student.slug)
 
   const tree = useMemo(() => buildDayTree(flatDays), [flatDays])
 
@@ -102,6 +102,8 @@ function TrackerView() {
   return (
     <>
       <Header
+        student={student}
+        course={course}
         arc={arc}
         isDAD={isDAD}
         completed={completedTop}
@@ -110,7 +112,7 @@ function TrackerView() {
         extraNav={
           isDAD && (
             <Link
-              to="/dad/files"
+              to={`/${student.slug}/dad/files`}
               className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted hover:text-ink underline underline-offset-2"
             >
               manage files →
@@ -129,6 +131,8 @@ function TrackerView() {
                 {showWeek && <WeekSeparator week={day.week} />}
                 <DayCard
                   day={day}
+                  student={student}
+                  course={course}
                   state={getDay(day.id)}
                   isCurrent={day.id === currentDayId}
                   isDAD={isDAD}
@@ -154,10 +158,10 @@ function TrackerView() {
   )
 }
 
-function FilesViewRoute() {
-  const { arc } = useTrackerData()
-  const { days: flatDays, error } = useCoursework()
-  const { manifest, upload, remove } = useAssets()
+function FilesViewRoute({ student, course }) {
+  const { arc } = useTrackerData(student.slug)
+  const { days: flatDays, error } = useCoursework(course.mdFile)
+  const { manifest, upload, remove } = useAssets(student.slug)
   const tree = useMemo(() => buildDayTree(flatDays), [flatDays])
   const totalTop = tree.length
 
@@ -171,23 +175,47 @@ function FilesViewRoute() {
 
   return (
     <>
-      <Header arc={arc} isDAD={true} completed={0} total={totalTop} />
+      <Header student={student} course={course} arc={arc} isDAD={true} completed={0} total={totalTop} />
       <FilesView tree={tree} manifest={manifest} onUpload={upload} onRemove={remove} />
     </>
   )
 }
 
-export default function App() {
-  useEffect(() => {
-    document.title = COURSE_TITLE
-  }, [])
+function StudentRoute({ render }) {
+  const { studentSlug } = useParams()
+  const location = useLocation()
+  const student = getStudent(studentSlug)
 
+  if (!student) return <Splash />
+
+  const course = student.courses[0]
+  const isDAD = location.pathname.includes('/dad')
+
+  // Set browser tab title from the student's course
+  useEffect(() => {
+    document.title = `${student.name} — ${course.title}`
+  }, [student.name, course.title])
+
+  return render({ student: { ...student, slug: studentSlug }, course, isDAD })
+}
+
+export default function App() {
   return (
     <Routes>
-      <Route path="/dad/files" element={<FilesViewRoute />} />
-      <Route path="/dad" element={<TrackerView />} />
-      <Route path="/" element={<TrackerView />} />
-      <Route path="*" element={<TrackerView />} />
+      <Route path="/" element={<Splash />} />
+      <Route
+        path="/:studentSlug/dad/files"
+        element={<StudentRoute render={(p) => <FilesViewRoute {...p} />} />}
+      />
+      <Route
+        path="/:studentSlug/dad"
+        element={<StudentRoute render={(p) => <TrackerView {...p} />} />}
+      />
+      <Route
+        path="/:studentSlug"
+        element={<StudentRoute render={(p) => <TrackerView {...p} />} />}
+      />
+      <Route path="*" element={<Splash />} />
     </Routes>
   )
 }

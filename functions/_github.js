@@ -1,11 +1,8 @@
-// GitHub Contents API mirror for claude-prompt files.
-// Replaces server/githubMirror.js (which used git CLI + a local working tree).
-//
-// One-way: local R2 is source of truth, GitHub is downstream mirror so that
-// claude.ai's WebFetch (allowlist includes raw.githubusercontent.com) can read
-// prompts. See decisions.md "GitHub mirror for claude-prompt files".
+// GitHub Contents API mirror for claude-prompt files. One-way: R2 is the
+// source of truth; GitHub mirror exists so claude.ai's WebFetch (allowlist
+// includes raw.githubusercontent.com) can read prompts.
 
-import { GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH, pathPrefix } from './_shared.js'
+import { GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } from './_shared.js'
 
 const API_BASE = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents`
 
@@ -18,7 +15,6 @@ function headers(pat) {
   }
 }
 
-// Returns existing file SHA, or null if it doesn't exist.
 async function getSha(path, pat) {
   const r = await fetch(`${API_BASE}/${path}?ref=${GITHUB_BRANCH}`, {
     headers: headers(pat),
@@ -29,7 +25,6 @@ async function getSha(path, pat) {
   return data.sha
 }
 
-// Base64-encode binary content for the Contents API.
 function bytesToBase64(bytes) {
   let binary = ''
   const chunkSize = 0x8000
@@ -39,9 +34,12 @@ function bytesToBase64(bytes) {
   return btoa(binary)
 }
 
-export async function syncToGitHub(dayId, filename, content, env) {
-  const path = `${pathPrefix(env)}day-${dayId}/${filename}`
-  const pat = env.GITHUB_PAT
+function mirrorPath(course, dayId, filename) {
+  return `${course.mirrorPrefix}day-${dayId}/${filename}`
+}
+
+export async function syncToGitHub(course, dayId, filename, content, pat) {
+  const path = mirrorPath(course, dayId, filename)
   try {
     const sha = await getSha(path, pat)
     const bytes = content instanceof Uint8Array ? content : new Uint8Array(content)
@@ -66,9 +64,8 @@ export async function syncToGitHub(dayId, filename, content, env) {
   }
 }
 
-export async function removeFromGitHub(dayId, filename, env) {
-  const path = `${pathPrefix(env)}day-${dayId}/${filename}`
-  const pat = env.GITHUB_PAT
+export async function removeFromGitHub(course, dayId, filename, pat) {
+  const path = mirrorPath(course, dayId, filename)
   try {
     const sha = await getSha(path, pat)
     if (!sha) return { ok: true }

@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
 
-const ARC_KEY = 'arc'
-const DAYS_KEY = 'days'
-
 function readJSON(key, fallback) {
   try {
     const raw = localStorage.getItem(key)
@@ -21,24 +18,29 @@ function defaultDay() {
   return { completed: false, completedAt: null, notes: [] }
 }
 
-export function useTrackerData() {
-  const [arc, setArcState] = useState(() => localStorage.getItem(ARC_KEY) || null)
-  const [days, setDays] = useState(() => readJSON(DAYS_KEY, {}))
+// Tracker state namespaced per student so multiple students sharing a
+// browser don't collide. Keys: `${studentSlug}.arc`, `${studentSlug}.days`.
+export function useTrackerData(studentSlug) {
+  const arcKey = `${studentSlug}.arc`
+  const daysKey = `${studentSlug}.days`
+
+  const [arc, setArcState] = useState(() => localStorage.getItem(arcKey) || null)
+  const [days, setDays] = useState(() => readJSON(daysKey, {}))
 
   useEffect(() => {
-    if (arc) localStorage.setItem(ARC_KEY, arc)
-  }, [arc])
+    if (arc) localStorage.setItem(arcKey, arc)
+  }, [arc, arcKey])
 
   useEffect(() => {
-    writeJSON(DAYS_KEY, days)
-  }, [days])
+    writeJSON(daysKey, days)
+  }, [days, daysKey])
 
   const setArc = useCallback((next) => setArcState(next), [])
 
   const clearArc = useCallback(() => {
-    localStorage.removeItem(ARC_KEY)
+    localStorage.removeItem(arcKey)
     setArcState(null)
-  }, [])
+  }, [arcKey])
 
   const getDay = useCallback((id) => days[id] || defaultDay(), [days])
 

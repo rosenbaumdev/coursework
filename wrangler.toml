@@ -2,12 +2,6 @@ name = "coursework"
 compatibility_date = "2025-12-01"
 pages_build_output_dir = "./dist"
 
-# Production env vars. wrangler pages deploy syncs these to the Pages project
-# on every deploy. For multi-project deploys from this repo, use a per-project
-# wrangler config (passed via --config) to override per-course.
-[vars]
-GITHUB_PATH_PREFIX = "jordan-sports-betting/"
-
 [[r2_buckets]]
 binding = "STORAGE"
 bucket_name = "coursework-assets"

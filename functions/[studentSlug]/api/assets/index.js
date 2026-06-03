@@ -1,27 +1,37 @@
-// GET /api/assets — manifest of uploaded files grouped by day → category.
-// Reads R2 listing and reconstructs the shape the old Express endpoint returned.
+// GET /<studentSlug>/api/assets — manifest grouped by day → category.
 
 import {
   CATEGORIES,
   DAY_ID_RE,
+  errorResponse,
   fileUrl,
   jsonResponse,
+  r2ListPrefix,
   rawUrl,
-} from '../../_shared.js'
+} from '../../../_shared.js'
+import { getCourse } from '../../../_students.js'
 
-export async function onRequestGet({ env }) {
+export async function onRequestGet({ params, env }) {
+  const { studentSlug } = params
+  const course = getCourse(studentSlug)
+  if (!course) return errorResponse('Unknown student', 404)
+
+  const listPrefix = r2ListPrefix(course)
+  const prefixStripLen = course.r2Prefix.length
+
   const manifest = {}
   let cursor = undefined
 
   do {
     const result = await env.STORAGE.list({
-      prefix: 'day-',
+      prefix: listPrefix,
       cursor,
       include: ['customMetadata'],
     })
     for (const obj of result.objects) {
-      // Key shape: day-<id>/<category>/<filename>
-      const parts = obj.key.split('/')
+      // Strip the r2Prefix so we always parse from `day-<id>/<category>/<filename>`.
+      const rel = obj.key.slice(prefixStripLen)
+      const parts = rel.split('/')
       if (parts.length !== 3) continue
       const dayPart = parts[0]
       const category = parts[1]
@@ -34,7 +44,7 @@ export async function onRequestGet({ env }) {
 
       const entry = {
         name: filename,
-        url: fileUrl(dayId, category, filename),
+        url: fileUrl(studentSlug, dayId, category, filename),
         size: obj.size,
         modified: obj.uploaded.toISOString(),
       }
@@ -43,7 +53,7 @@ export async function onRequestGet({ env }) {
         const meta = obj.customMetadata || {}
         if (meta.mirror_status) {
           entry.mirror = {
-            url: rawUrl(env, dayId, filename),
+            url: rawUrl(course, dayId, filename),
             status: meta.mirror_status,
             syncedAt: meta.mirror_synced_at || null,
             error: meta.mirror_error || null,

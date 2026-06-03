@@ -1,10 +1,9 @@
 import { useState } from 'react'
-import { STUDENT_NAME, COURSE_TITLE } from '../courseConfig.js'
 
-function buildPointerPrompt({ day, fetchUrl }) {
-  return `You are leading Day ${day.id} of ${STUDENT_NAME}'s ${COURSE_TITLE}: "${day.title}".
+function buildPointerPrompt({ day, fetchUrl, studentName, courseTitle }) {
+  return `You are leading Day ${day.id} of ${studentName}'s ${courseTitle}: "${day.title}".
 
-Fetch the full instructor briefing at ${fetchUrl} and follow it precisely. Address ${STUDENT_NAME} directly.
+Fetch the full instructor briefing at ${fetchUrl} and follow it precisely. Address ${studentName} directly.
 
 Brief context: ${day.description}`
 }
@@ -63,7 +62,7 @@ async function copyFullPrompt(fullUrl, setStatus) {
   }
 }
 
-export default function ClaudeLauncher({ day, prompts }) {
+export default function ClaudeLauncher({ day, student, course, prompts }) {
   const [status, setStatus] = useState(null)
   if (!prompts?.length) return null
 
@@ -81,7 +80,12 @@ export default function ClaudeLauncher({ day, prompts }) {
           const fetchUrl = prompt.mirror?.status === 'synced' && prompt.mirror.url
             ? prompt.mirror.url
             : localUrl
-          const pointerPrompt = buildPointerPrompt({ day, fetchUrl })
+          const pointerPrompt = buildPointerPrompt({
+            day,
+            fetchUrl,
+            studentName: student.name,
+            courseTitle: course.title,
+          })
           return (
             <div
               key={prompt.url}
