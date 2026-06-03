@@ -1,7 +1,6 @@
 import ProgressBar from './ProgressBar.jsx'
-import { STUDENT_NAME, COURSE_TITLE } from '../courseConfig.js'
 
-export default function Header({ arc, isDAD, completed, total, onChangeArc, extraNav }) {
+export default function Header({ student, course, arc, isDAD, completed, total, onChangeArc, extraNav }) {
   return (
     <header className="border-b border-rule bg-white">
       <div className="max-w-3xl mx-auto px-6 py-8">
@@ -11,7 +10,7 @@ export default function Header({ arc, isDAD, completed, total, onChangeArc, extr
               {isDAD ? "Dad's View" : 'Builder Mode'}
             </p>
             <h1 className="text-2xl font-semibold tracking-tight text-ink">
-              {STUDENT_NAME}'s {COURSE_TITLE}
+              {student.name}'s {course.title}
             </h1>
             <div className="mt-3 inline-flex items-center gap-2">
               <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">

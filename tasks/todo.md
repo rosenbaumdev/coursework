@@ -1,118 +1,123 @@
 # Status (rolling)
 
-Active phase: **Multi-course + domain migration to kitbord.com.** Jordan's course (Sports Betting AI) moves from `coursework.rosenbaum.us` → `jordan-sports-betting.kitbord.com`. New course `content-creator` set up at `content-creator.kitbord.com` from the same codebase.
+Active phase: **Multi-tenant path-per-student on coursework.kitbord.com.** Replaces the prior subdomain-per-course design. Jordan moves from `jordan-sports-betting.kitbord.com` to `coursework.kitbord.com/jordan`; new student `contentcreator` lives at `coursework.kitbord.com/contentcreator`. Single Pages project, single R2 bucket, single mirror repo with per-course storage prefixes.
 
-## Decision inputs (locked 2026-06-02)
-- Multi-course model: **subdomain-per-course** (separate Pages project per course)
-- Slug for current course: `jordan-sports-betting`
-- Slug for new course: `content-creator`
-- Mirror repo: **reuse `rosenbaumdev/coursework`** with `GITHUB_PATH_PREFIX` per course (Jordan's existing files at root → migrate to `jordan-sports-betting/`)
-- R2: **separate bucket per course**. Jordan keeps `coursework-assets`. New: `coursework-content-creator`.
-- App code: **one repo, one branch, env-driven** (per-Pages-project env vars). Both courses' MDs ship in every build (minor leakage acceptable; mirror repo is public anyway).
-- Domain: `kitbord.com` zone already at CF.
+## Decision inputs (locked 2026-06-03)
+- URL model: **path-per-student** under one domain `coursework.kitbord.com`
+- Root `/` = private splash ("ask your coursemaster for a URL")
+- Per-student URL: `/<studentSlug>` (auto-renders the student's single course; future picker when >1 courses)
+- Dad's view: `/<studentSlug>/dad` and `/<studentSlug>/dad/files`
+- Jordan keeps **flat R2 keys** (`day-N/<cat>/<file>`) — no migration; his course `r2Prefix` is empty string
+- Content-creator gets `r2Prefix = "content-creator/"`
+- GitHub mirror prefixes per course: Jordan `jordan-sports-betting/`, content-creator `content-creator/`
+- Old subdomain `jordan-sports-betting.kitbord.com` → 301-redirect to `coursework.kitbord.com/jordan/:splat` via `_redirects`
+- Single Pages project named `coursework`; single R2 bucket `coursework-assets`. No second project, no second bucket.
 
 ## Architecture target
 
-### Per-Pages-project env vars (set in dashboard)
-| Var | Jordan | Content Creator |
-|---|---|---|
-| `VITE_COURSE_SLUG` | `jordan-sports-betting` | `content-creator` |
-| `VITE_STUDENT_NAME` | `Jordan` | TBD |
-| `VITE_COURSE_TITLE` | `Sports Betting AI` | TBD |
-| `GITHUB_PATH_PREFIX` | `jordan-sports-betting/` | `content-creator/` |
-| `GITHUB_PAT` (secret) | same | same |
-| `STORAGE` (R2 binding) | `coursework-assets` | `coursework-content-creator` |
+### URL routes
+| URL | What |
+|---|---|
+| `/` | private splash |
+| `/<studentSlug>` | student's course view (auto-resolves to single course) |
+| `/<studentSlug>/dad` | dad's view of that course |
+| `/<studentSlug>/dad/files` | files CMS |
+| `/<studentSlug>/api/assets` | manifest |
+| `/<studentSlug>/api/assets/<dayId>` | POST upload |
+| `/<studentSlug>/api/assets/<dayId>/<cat>/<file>` | DELETE |
+| `/<studentSlug>/files/*` | R2 proxy |
+| `/<studentSlug>/<mdFile>` | static MD source for the course |
 
-### Repo layout
-```
-public/
-  jordan-sports-betting.md   ← Jordan's course content (rename of coursework.md)
-  content-creator.md         ← new course (to author from briefs after infra)
-functions/
-  _shared.js, _github.js     ← read env.GITHUB_PATH_PREFIX, RAW_BASE composed dynamically
-  api/assets/...             ← unchanged structure
-src/
-  App.jsx                    ← fetch `/${VITE_COURSE_SLUG}.md`
-  components/Header.jsx      ← title from VITE_STUDENT_NAME + VITE_COURSE_TITLE
-  components/ClaudeLauncher.jsx  ← prompt template parameterized
-  components/NotesThread.jsx ← author label parameterized
+### Students config (`src/students.js` + parallel `functions/_students.js`)
+```js
+export const STUDENTS = {
+  jordan: {
+    name: 'Jordan',
+    courses: [
+      {
+        slug: 'sports-betting-ai',
+        title: 'Sports Betting AI',
+        mdFile: 'jordan-sports-betting.md',
+        r2Prefix: '',             // flat — no migration
+        mirrorPrefix: 'jordan-sports-betting/',
+      },
+    ],
+  },
+  contentcreator: {
+    name: 'Content Creator',      // placeholder; real name later
+    courses: [
+      {
+        slug: 'main',
+        title: 'Content Creator',
+        mdFile: 'content-creator.md',
+        r2Prefix: 'content-creator/',
+        mirrorPrefix: 'content-creator/',
+      },
+    ],
+  },
+}
 ```
 
-### Domain map
-| Hostname | Pages project | Status |
-|---|---|---|
-| `coursework.rosenbaum.us` | `coursework` | detach |
-| `jordan-sports-betting.kitbord.com` | `coursework` (rename project later) | attach |
-| `content-creator.kitbord.com` | NEW Pages project | create + attach |
+### localStorage namespacing
+Keys become `<studentSlug>.arc` and `<studentSlug>.days`. Existing keys on coursework.rosenbaum.us are already stranded; on kitbord.com everyone starts fresh.
 
 ## Migration steps
 
-### Phase G — Multi-course refactor (code)
-- [ ] `src/App.jsx`: fetch `/${VITE_COURSE_SLUG}.md` instead of hardcoded `/coursework.md`
-- [ ] `src/App.jsx`: replace `'jordan'` note author with `'student'`
-- [ ] `src/components/Header.jsx`: read `VITE_STUDENT_NAME` + `VITE_COURSE_TITLE`
-- [ ] `src/components/ClaudeLauncher.jsx`: parameterize prompt with VITE vars
-- [ ] `src/components/NotesThread.jsx`: rename `isJordan` → `isStudent`, label from env var
-- [ ] `index.html`: generic title; React sets document.title from env var on load
-- [ ] `package.json`: rename `jordan-coursework` → `builder-coursework`
-- [ ] `functions/_shared.js`: `GITHUB_OWNER`/`GITHUB_REPO` still hardcoded (constant), but `RAW_BASE` becomes a function `rawBase(env)` that includes `GITHUB_PATH_PREFIX`
-- [ ] `functions/_github.js`: read `env.GITHUB_PATH_PREFIX`, prepend to all paths
-- [ ] `functions/api/assets/[dayId].js`: pass env into mirror calls, compose raw URL with prefix
-- [ ] `functions/api/assets/[dayId]/[category]/[filename].js`: pass env into mirror calls
-- [ ] `functions/api/assets/index.js`: compose `mirror.url` with prefix
-- [ ] Verify build still passes
+### Phase N — multi-tenant refactor (code)
+- [ ] `src/students.js` (new) — students + courses config
+- [ ] `src/App.jsx` — routing: `/:studentSlug`, `/:studentSlug/dad`, `/:studentSlug/dad/files`, root splash
+- [ ] `src/courseConfig.js` — delete
+- [ ] `src/components/Header.jsx` — read student/course from props/context (not env)
+- [ ] `src/components/ClaudeLauncher.jsx` — same
+- [ ] `src/components/NotesThread.jsx` — same
+- [ ] `src/hooks/useTrackerData.js` — namespace localStorage by `<studentSlug>` prefix
+- [ ] `src/hooks/useAssets.js` — fetch from `/<studentSlug>/api/assets`, etc.
+- [ ] `src/components/Splash.jsx` (new) — minimal "ask your coursemaster" page
+- [ ] `functions/[studentSlug]/api/assets/index.js` — move from `functions/api/...`
+- [ ] `functions/[studentSlug]/api/assets/[dayId].js` — same
+- [ ] `functions/[studentSlug]/api/assets/[dayId]/[category]/[filename].js` — same
+- [ ] `functions/[studentSlug]/files/[[path]].js` — same
+- [ ] `functions/_students.js` (new) — parallel students config for Functions runtime
+- [ ] `functions/_shared.js` — `r2Key`/`rawUrl` take a course object, not env
+- [ ] `functions/_github.js` — `syncToGitHub`/`removeFromGitHub` take course + pat (not env)
+- [ ] `wrangler.toml` — drop `[vars]` GITHUB_PATH_PREFIX (no longer needed)
+- [ ] `package.json` — collapse `deploy:jordan`/`deploy:cc` → single `deploy`
+- [ ] `public/_redirects` — add 301 for old subdomain → `/jordan/:splat`
+- [ ] Delete `scripts/set-pages-env.mjs` (one-off, no longer needed)
 
-### Phase H — Migrate Jordan's existing data
-- [ ] Rename `public/coursework.md` → `public/jordan-sports-betting.md`
-- [ ] GitHub mirror migration: clone `rosenbaumdev/coursework`, move `day-*/` to `jordan-sports-betting/day-*/`, commit + push. (Existing claude.ai project system prompts pointing at raw URLs will need updating once-off — short list since most uses are session-specific.)
-- [ ] R2: no migration needed — Jordan's bucket `coursework-assets` keeps existing paths. The Pages project's `GITHUB_PATH_PREFIX` env var handles only GitHub.
+### Phase O — domain swap (jordan-sports-betting → coursework)
+- [ ] Attach `coursework.kitbord.com` to existing Pages project (API)
+- [ ] Create CNAME `coursework.kitbord.com` → `coursework-5lg.pages.dev` (API)
+- [ ] Verify cert provisions + serves
+- [ ] Keep `jordan-sports-betting.kitbord.com` attached (for redirect via `_redirects`)
+- [ ] Deploy
+- [ ] Verify `/jordan`, `/jordan/dad`, `/jordan/dad/files`, and old subdomain redirects
 
-### Phase I — Domain swap for Jordan (rosenbaum.us → kitbord.com)
-- [ ] Pages project `coursework`: set env vars (Phase G) in dashboard → production
-- [ ] Pages project `coursework`: attach custom domain `jordan-sports-betting.kitbord.com` (via API or dashboard)
-- [ ] kitbord.com DNS: ensure no conflicting record on `jordan-sports-betting` (probably none)
-- [ ] Detach `coursework.rosenbaum.us` from Pages
-- [ ] Delete the `coursework` CNAME on rosenbaum.us in DNS
-- [ ] Rename Pages project from `coursework` → `coursework-jordan-sports-betting` (cosmetic; optional but disambiguates)
+### Phase P — content-creator content
+- [ ] Author `public/content-creator.md` from the 15 briefs already in `assets/Daily Instructor Briefs - content-course/`
+- [ ] Upload each brief as `claude-prompt` via `/contentcreator/api/assets/<dayId>` → R2 + GH mirror
+- [ ] Verify `/contentcreator` renders
 
-### Phase J — Set up Content Creator Pages project
-- [ ] Create Pages project `coursework-content-creator` pointing at same repo
-- [ ] Create R2 bucket `coursework-content-creator`
-- [ ] Set env vars in Pages dashboard (VITE_COURSE_SLUG=content-creator, VITE_STUDENT_NAME=TBD, VITE_COURSE_TITLE=TBD, GITHUB_PATH_PREFIX=content-creator/)
-- [ ] Set R2 binding `STORAGE` → `coursework-content-creator`
-- [ ] Add GITHUB_PAT secret (reuse the existing PAT)
-- [ ] Attach custom domain `content-creator.kitbord.com`
-- [ ] Deploy from main
+### Phase Q — Cloudflare Access
+- [ ] Add Access app: `coursework.kitbord.com/*/dad*` → email `joalro@yahoo.com` (covers both students' dad views)
+- [ ] Add Access app: `coursework.kitbord.com/*/api/assets/*` → same allowlist (covers POST/DELETE; bare `/*/api/assets` stays public for manifest GET)
 
-### Phase K — Cloudflare Access (both subdomains)
-- [ ] Add Access app: `jordan-sports-betting.kitbord.com/dad*` + `/dad` → email allowlist `joalro@yahoo.com`
-- [ ] Add Access app: `jordan-sports-betting.kitbord.com/api/assets/*` → same allowlist
-- [ ] Add Access app: `content-creator.kitbord.com/dad*` + `/dad` → same allowlist
-- [ ] Add Access app: `content-creator.kitbord.com/api/assets/*` → same allowlist
-- [ ] Delete any leftover Access apps on `coursework.rosenbaum.us` (if they were created earlier)
-
-### Phase L — Author + upload Content Creator content
-- [ ] Receive 15 instructor briefs from Jonathan
-- [ ] Author `public/content-creator.md` with 16 day entries (Day 0 + Days 1-15) extracting title/description/week/body from each brief
-- [ ] Upload each brief as `claude-prompt` via the new Pages API → R2 + GitHub mirror to `content-creator/day-N/<file>`
-- [ ] Verify manifest, raw URLs, ClaudeLauncher
-
-### Phase M — Cleanup + docs
-- [ ] Delete `server/` directory (no longer needed since Pages cutover)
-- [ ] Delete `~/.coursework-mirror-clone/` and `~/.coursework-mirror-state.json` (Worker handles mirror now)
-- [ ] Update CLAUDE.md: multi-course architecture, env vars, per-project bindings, both domains
-- [ ] Update tasks/decisions.md: add multi-course design decision + supersede old single-course assumptions
-- [ ] Update tasks/state.md
+### Phase R — cleanup + docs
+- [ ] Delete `server/` directory
+- [ ] Delete `~/.coursework-mirror-clone/` + `~/.coursework-mirror-state.json`
+- [ ] Update CLAUDE.md: multi-tenant architecture, route + storage shape, students config
+- [ ] Update `tasks/decisions.md`: supersede subdomain-per-course decision with path-per-student
+- [ ] Update `tasks/state.md`
 - [ ] Update auto-memory: project_active_processes, project_arch_gotchas, reference_infra
 
 ## Risks + open questions
-- **localStorage stranded on old domain**: per-domain isolation means notes + completions on `coursework.rosenbaum.us` won't follow to `jordan-sports-betting.kitbord.com`. Few notes exist; option is to manually re-add anything Jonathan cares about post-cutover, or accept the loss.
-- **Existing Claude.ai project system prompts**: any prompt referencing `raw.githubusercontent.com/rosenbaumdev/coursework/main/day-N/<file>` will 404 after Phase H. Mitigation: update prompts post-migration; ClaudeLauncher generates fresh URLs each session.
-- **Other course MD leakage**: both courses' MDs ship in every Pages build (different bandwidth concern is negligible). If course content should be private later → branch-per-course or private repo.
-- **Subdomain-per-course doesn't scale past ~5 courses** without irritating dashboard work. Path-per-course refactor available later if needed.
+- **localStorage stranded on rosenbaum.us AND jordan-sports-betting.kitbord.com**: per-domain isolation. Notes Jordan added during the brief jordan-sports-betting.kitbord.com era won't carry to coursework.kitbord.com/jordan. Negligible content.
+- **R2 listing collision**: Jordan's flat keys (`day-*`) and content-creator's prefixed keys (`content-creator/day-*`) don't overlap because the prefix in `list()` is computed per course (`{r2Prefix}day-`). Verified by design.
+- **Brief file paths in mirror repo**: Jordan stays at `jordan-sports-betting/day-N/`. Content-creator at `content-creator/day-N/`. Both already in place from earlier work.
 
-## Out of scope this phase
-- Path-per-course refactor (deferred unless multiple students materialize)
-- Per-student authentication for student view (still wide open; CF Access only gates /dad)
-- launchd persistence on jserver (jserver runtime gone)
-- Engagement tracking
+## Superseded (kept for memory)
+- ~~Subdomain-per-course (Phase G-K original)~~ — replaced by path-per-student.
+- ~~Per-course Pages project + R2 bucket~~ — single project + bucket now.
+- ~~VITE_COURSE_SLUG / VITE_STUDENT_NAME / VITE_COURSE_TITLE env vars~~ — config moves into `src/students.js`.
+- ~~GITHUB_PATH_PREFIX env var~~ — comes from per-course `mirrorPrefix` field at runtime.
+- ~~`deploy:jordan` / `deploy:cc` scripts~~ — collapse to `deploy`.

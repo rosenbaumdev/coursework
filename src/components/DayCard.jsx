@@ -101,6 +101,8 @@ function Chevron({ open }) {
 
 export default function DayCard({
   day,
+  student,
+  course,
   state,
   isCurrent,
   isDAD,
@@ -217,7 +219,7 @@ export default function DayCard({
               onRemove={(category, filename) => onRemoveAsset(day.id, category, filename)}
             />
 
-            <ClaudeLauncher day={day} prompts={prompts} />
+            <ClaudeLauncher day={day} student={student} course={course} prompts={prompts} />
 
             <AssetList
               assets={otherAssets}
@@ -246,6 +248,8 @@ export default function DayCard({
                     <DayCard
                       key={child.id}
                       day={child}
+                      student={student}
+                      course={course}
                       state={getState(child.id)}
                       isCurrent={false}
                       isDAD={isDAD}
@@ -265,7 +269,7 @@ export default function DayCard({
               </div>
             )}
 
-            <NotesThread notes={notes} isDAD={isDAD} onAdd={onAddNote} />
+            <NotesThread notes={notes} student={student} isDAD={isDAD} onAdd={onAddNote} />
 
             {isDAD && (
               <AssetUploader

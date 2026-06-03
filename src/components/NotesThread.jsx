@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { STUDENT_NAME } from '../courseConfig.js'
 
 const TIME_FMT = new Intl.DateTimeFormat('en-US', {
   month: 'short',
@@ -17,7 +16,7 @@ function formatTimestamp(iso) {
   }
 }
 
-function AuthorPill({ author }) {
+function AuthorPill({ author, studentName }) {
   const isStudent = author !== 'dad'
   return (
     <span
@@ -25,12 +24,12 @@ function AuthorPill({ author }) {
         isStudent ? 'bg-accent' : 'bg-dad'
       }`}
     >
-      {isStudent ? STUDENT_NAME : 'Dad'}
+      {isStudent ? studentName : 'Dad'}
     </span>
   )
 }
 
-export default function NotesThread({ notes, isDAD, onAdd }) {
+export default function NotesThread({ notes, student, isDAD, onAdd }) {
   const [text, setText] = useState('')
 
   function handleSubmit(e) {
@@ -42,7 +41,7 @@ export default function NotesThread({ notes, isDAD, onAdd }) {
 
   const author = isDAD ? 'dad' : 'student'
   const placeholder = isDAD
-    ? `Leave ${STUDENT_NAME} some feedback…`
+    ? `Leave ${student.name} some feedback…`
     : 'What happened today? What got hard?'
 
   return (
@@ -54,7 +53,7 @@ export default function NotesThread({ notes, isDAD, onAdd }) {
           {notes.map((note) => (
             <li key={note.id} className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
-                <AuthorPill author={note.author} />
+                <AuthorPill author={note.author} studentName={student.name} />
                 <span className="font-mono text-[11px] text-muted">
                   {formatTimestamp(note.timestamp)}
                 </span>

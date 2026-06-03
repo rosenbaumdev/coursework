@@ -1,5 +1,5 @@
-// Shared constants + helpers for Pages Functions.
-// Files prefixed with _ are not exposed as routes.
+// Shared constants + helpers for Pages Functions. Files prefixed with _ are
+// not exposed as routes.
 
 export const CATEGORIES = ['podcast', 'deck-pdf', 'deck-pptx', 'claude-prompt', 'other']
 
@@ -18,19 +18,6 @@ export const GITHUB_OWNER = 'rosenbaumdev'
 export const GITHUB_REPO = 'coursework'
 export const GITHUB_BRANCH = 'main'
 
-// Per-course path prefix in the shared mirror repo. Set via Pages env var
-// GITHUB_PATH_PREFIX (e.g. "jordan-sports-betting/"). Default empty for
-// repos that mirror at root.
-export function pathPrefix(env) {
-  const raw = (env && env.GITHUB_PATH_PREFIX) || ''
-  if (!raw) return ''
-  return raw.endsWith('/') ? raw : `${raw}/`
-}
-
-export function rawUrl(env, dayId, filename) {
-  return `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${pathPrefix(env)}day-${dayId}/${filename}`
-}
-
 export function sanitizeFilename(name) {
   return name
     .replace(/^[.]+/, '')
@@ -43,12 +30,25 @@ export function fileExt(name) {
   return dot === -1 ? '' : name.slice(dot + 1).toLowerCase()
 }
 
-export function r2Key(dayId, category, filename) {
-  return `day-${dayId}/${category}/${filename}`
+// R2 key under the course's prefix. Jordan's prefix is empty so files live
+// at day-N/... (no migration). Other courses get a folder prefix.
+export function r2Key(course, dayId, category, filename) {
+  return `${course.r2Prefix}day-${dayId}/${category}/${filename}`
 }
 
-export function fileUrl(dayId, category, filename) {
-  return `/files/day-${dayId}/${category}/${encodeURIComponent(filename)}`
+export function r2ListPrefix(course) {
+  return `${course.r2Prefix}day-`
+}
+
+// /files URL under the student's path.
+export function fileUrl(studentSlug, dayId, category, filename) {
+  return `/${studentSlug}/files/day-${dayId}/${category}/${encodeURIComponent(filename)}`
+}
+
+// GitHub raw URL for a mirrored claude-prompt file. Uses the course's mirror
+// prefix so each course namespaces its mirror content in the shared repo.
+export function rawUrl(course, dayId, filename) {
+  return `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${course.mirrorPrefix}day-${dayId}/${filename}`
 }
 
 export function jsonResponse(data, status = 200) {

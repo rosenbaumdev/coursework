@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
 
-export function useAssets() {
+// All asset endpoints live under /<studentSlug>/api/assets and /<studentSlug>/files/*
+export function useAssets(studentSlug) {
   const [manifest, setManifest] = useState({})
   const [error, setError] = useState(null)
 
+  const base = `/${studentSlug}/api/assets`
+
   const refresh = useCallback(async () => {
     try {
-      const r = await fetch('/api/assets')
+      const r = await fetch(base)
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       setManifest(await r.json())
       setError(null)
     } catch (e) {
       setError(e.message || 'Failed to load assets')
     }
-  }, [])
+  }, [base])
 
   useEffect(() => {
     refresh()
@@ -24,7 +27,7 @@ export function useAssets() {
       const fd = new FormData()
       fd.append('category', category)
       fd.append('file', file)
-      const r = await fetch(`/api/assets/${encodeURIComponent(dayId)}`, {
+      const r = await fetch(`${base}/${encodeURIComponent(dayId)}`, {
         method: 'POST',
         body: fd,
       })
@@ -33,13 +36,13 @@ export function useAssets() {
       await refresh()
       return data
     },
-    [refresh],
+    [base, refresh],
   )
 
   const remove = useCallback(
     async (dayId, category, filename) => {
       const r = await fetch(
-        `/api/assets/${encodeURIComponent(dayId)}/${encodeURIComponent(category)}/${encodeURIComponent(filename)}`,
+        `${base}/${encodeURIComponent(dayId)}/${encodeURIComponent(category)}/${encodeURIComponent(filename)}`,
         { method: 'DELETE' },
       )
       if (!r.ok) {
@@ -48,7 +51,7 @@ export function useAssets() {
       }
       await refresh()
     },
-    [refresh],
+    [base, refresh],
   )
 
   return { manifest, error, refresh, upload, remove }

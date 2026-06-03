@@ -1,4 +1,4 @@
-// POST /api/assets/:dayId — multipart upload to R2.
+// POST /<studentSlug>/api/assets/:dayId — multipart upload to R2.
 // Body: multipart/form-data with fields "category" and "file".
 // For claude-prompt category, also mirrors to GitHub via Contents API.
 
@@ -7,20 +7,23 @@ import {
   CATEGORY_EXTS,
   DAY_ID_RE,
   SAFE_NAME_RE,
+  errorResponse,
   fileExt,
   fileUrl,
   jsonResponse,
-  errorResponse,
   r2Key,
   rawUrl,
   sanitizeFilename,
-} from '../../_shared.js'
-import { syncToGitHub } from '../../_github.js'
+} from '../../../_shared.js'
+import { getCourse } from '../../../_students.js'
+import { syncToGitHub } from '../../../_github.js'
 
 const MAX_SIZE = 100 * 1024 * 1024 // 100 MB
 
 export async function onRequestPost({ request, params, env }) {
-  const { dayId } = params
+  const { studentSlug, dayId } = params
+  const course = getCourse(studentSlug)
+  if (!course) return errorResponse('Unknown student', 404)
   if (!DAY_ID_RE.test(dayId)) return errorResponse('Invalid dayId')
 
   let form
@@ -47,7 +50,7 @@ export async function onRequestPost({ request, params, env }) {
   }
 
   const body = new Uint8Array(await file.arrayBuffer())
-  const key = r2Key(dayId, category, filename)
+  const key = r2Key(course, dayId, category, filename)
 
   const customMetadata = {}
   let mirrorResult = null
@@ -56,7 +59,7 @@ export async function onRequestPost({ request, params, env }) {
     if (!env.GITHUB_PAT) {
       mirrorResult = { ok: false, error: 'GITHUB_PAT not configured' }
     } else {
-      mirrorResult = await syncToGitHub(dayId, filename, body, env)
+      mirrorResult = await syncToGitHub(course, dayId, filename, body, env.GITHUB_PAT)
     }
     customMetadata.mirror_status = mirrorResult.ok ? 'synced' : 'failed'
     if (mirrorResult.syncedAt) customMetadata.mirror_synced_at = mirrorResult.syncedAt
@@ -72,7 +75,7 @@ export async function onRequestPost({ request, params, env }) {
     ok: true,
     file: {
       name: filename,
-      url: fileUrl(dayId, category, filename),
+      url: fileUrl(studentSlug, dayId, category, filename),
       size: file.size,
     },
   }
@@ -82,7 +85,7 @@ export async function onRequestPost({ request, params, env }) {
       status: mirrorResult.ok ? 'synced' : 'failed',
       syncedAt: mirrorResult.syncedAt || null,
       error: mirrorResult.error || null,
-      url: mirrorResult.ok ? rawUrl(env, dayId, filename) : undefined,
+      url: mirrorResult.ok ? rawUrl(course, dayId, filename) : undefined,
     }
   }
 
