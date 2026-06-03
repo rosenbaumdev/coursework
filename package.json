@@ -8,7 +8,8 @@
     "dev:full": "wrangler pages dev --proxy 5173 --r2 STORAGE=coursework-assets -- vite",
     "build": "vite build",
     "preview": "wrangler pages dev dist --r2 STORAGE=coursework-assets",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name coursework"
+    "deploy:jordan": "VITE_COURSE_SLUG=jordan-sports-betting VITE_STUDENT_NAME=Jordan VITE_COURSE_TITLE=\"Sports Betting AI\" npm run build && wrangler pages deploy dist --project-name coursework --branch main",
+    "deploy:cc": "VITE_COURSE_SLUG=content-creator VITE_STUDENT_NAME=Student VITE_COURSE_TITLE=\"Content Creator\" npm run build && wrangler pages deploy dist --project-name coursework-content-creator --branch main --config wrangler.cc.toml"
   },
   "dependencies": {
     "react": "^18.3.1",
