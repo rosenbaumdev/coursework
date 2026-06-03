@@ -1,9 +1,10 @@
 import { useState } from 'react'
+import { STUDENT_NAME, COURSE_TITLE } from '../courseConfig.js'
 
 function buildPointerPrompt({ day, fetchUrl }) {
-  return `You are leading Day ${day.id} of Jordan's AI Builder Coursework: "${day.title}".
+  return `You are leading Day ${day.id} of ${STUDENT_NAME}'s ${COURSE_TITLE}: "${day.title}".
 
-Fetch the full instructor briefing at ${fetchUrl} and follow it precisely. Address Jordan directly.
+Fetch the full instructor briefing at ${fetchUrl} and follow it precisely. Address ${STUDENT_NAME} directly.
 
 Brief context: ${day.description}`
 }

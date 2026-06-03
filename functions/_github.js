@@ -5,7 +5,7 @@
 // claude.ai's WebFetch (allowlist includes raw.githubusercontent.com) can read
 // prompts. See decisions.md "GitHub mirror for claude-prompt files".
 
-import { GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } from './_shared.js'
+import { GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH, pathPrefix } from './_shared.js'
 
 const API_BASE = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents`
 
@@ -39,8 +39,9 @@ function bytesToBase64(bytes) {
   return btoa(binary)
 }
 
-export async function syncToGitHub(dayId, filename, content, pat) {
-  const path = `day-${dayId}/${filename}`
+export async function syncToGitHub(dayId, filename, content, env) {
+  const path = `${pathPrefix(env)}day-${dayId}/${filename}`
+  const pat = env.GITHUB_PAT
   try {
     const sha = await getSha(path, pat)
     const bytes = content instanceof Uint8Array ? content : new Uint8Array(content)
@@ -65,8 +66,9 @@ export async function syncToGitHub(dayId, filename, content, pat) {
   }
 }
 
-export async function removeFromGitHub(dayId, filename, pat) {
-  const path = `day-${dayId}/${filename}`
+export async function removeFromGitHub(dayId, filename, env) {
+  const path = `${pathPrefix(env)}day-${dayId}/${filename}`
+  const pat = env.GITHUB_PAT
   try {
     const sha = await getSha(path, pat)
     if (!sha) return { ok: true }

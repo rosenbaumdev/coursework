@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { STUDENT_NAME } from '../courseConfig.js'
 
 const TIME_FMT = new Intl.DateTimeFormat('en-US', {
   month: 'short',
@@ -17,14 +18,14 @@ function formatTimestamp(iso) {
 }
 
 function AuthorPill({ author }) {
-  const isJordan = author === 'jordan'
+  const isStudent = author !== 'dad'
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-white ${
-        isJordan ? 'bg-accent' : 'bg-dad'
+        isStudent ? 'bg-accent' : 'bg-dad'
       }`}
     >
-      {isJordan ? 'Jordan' : 'Dad'}
+      {isStudent ? STUDENT_NAME : 'Dad'}
     </span>
   )
 }
@@ -39,9 +40,9 @@ export default function NotesThread({ notes, isDAD, onAdd }) {
     setText('')
   }
 
-  const author = isDAD ? 'dad' : 'jordan'
+  const author = isDAD ? 'dad' : 'student'
   const placeholder = isDAD
-    ? 'Leave Jordan some feedback…'
+    ? `Leave ${STUDENT_NAME} some feedback…`
     : 'What happened today? What got hard?'
 
   return (

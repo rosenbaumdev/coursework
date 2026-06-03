@@ -1,4 +1,4 @@
-// Parses public/coursework.md into an ordered array of day objects.
+// Parses a course markdown file (public/<slug>.md) into an ordered array of day objects.
 //
 // Document shape: frontmatter blocks delimited by `---` lines, with free-form
 // markdown body content between them.

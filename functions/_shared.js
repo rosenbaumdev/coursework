@@ -17,7 +17,19 @@ export const SAFE_NAME_RE = /^[^/\\]+$/
 export const GITHUB_OWNER = 'rosenbaumdev'
 export const GITHUB_REPO = 'coursework'
 export const GITHUB_BRANCH = 'main'
-export const RAW_BASE = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}`
+
+// Per-course path prefix in the shared mirror repo. Set via Pages env var
+// GITHUB_PATH_PREFIX (e.g. "jordan-sports-betting/"). Default empty for
+// repos that mirror at root.
+export function pathPrefix(env) {
+  const raw = (env && env.GITHUB_PATH_PREFIX) || ''
+  if (!raw) return ''
+  return raw.endsWith('/') ? raw : `${raw}/`
+}
+
+export function rawUrl(env, dayId, filename) {
+  return `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${pathPrefix(env)}day-${dayId}/${filename}`
+}
 
 export function sanitizeFilename(name) {
   return name

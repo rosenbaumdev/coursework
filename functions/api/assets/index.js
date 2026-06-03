@@ -4,9 +4,9 @@
 import {
   CATEGORIES,
   DAY_ID_RE,
-  RAW_BASE,
   fileUrl,
   jsonResponse,
+  rawUrl,
 } from '../../_shared.js'
 
 export async function onRequestGet({ env }) {
@@ -43,7 +43,7 @@ export async function onRequestGet({ env }) {
         const meta = obj.customMetadata || {}
         if (meta.mirror_status) {
           entry.mirror = {
-            url: `${RAW_BASE}/day-${dayId}/${filename}`,
+            url: rawUrl(env, dayId, filename),
             status: meta.mirror_status,
             syncedAt: meta.mirror_synced_at || null,
             error: meta.mirror_error || null,
