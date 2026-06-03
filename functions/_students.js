@@ -22,6 +22,7 @@ export const STUDENTS = {
         mdFile: 'content-creator.md',
         r2Prefix: 'content-creator/',
         mirrorPrefix: 'content-creator/',
+        defaultArc: 'Perimenopause + Women’s Wellness',
       },
     ],
   },

@@ -20,11 +20,15 @@ function defaultDay() {
 
 // Tracker state namespaced per student so multiple students sharing a
 // browser don't collide. Keys: `${studentSlug}.arc`, `${studentSlug}.days`.
-export function useTrackerData(studentSlug) {
+// `defaultArc` is used as the initial arc value for courses that don't have
+// an arc-selection day (no in-app picker).
+export function useTrackerData(studentSlug, defaultArc) {
   const arcKey = `${studentSlug}.arc`
   const daysKey = `${studentSlug}.days`
 
-  const [arc, setArcState] = useState(() => localStorage.getItem(arcKey) || null)
+  const [arc, setArcState] = useState(
+    () => localStorage.getItem(arcKey) || defaultArc || null,
+  )
   const [days, setDays] = useState(() => readJSON(daysKey, {}))
 
   useEffect(() => {

@@ -66,7 +66,7 @@ function InlineArcPicker({ onSelect }) {
 }
 
 function TrackerView({ student, course, isDAD }) {
-  const { arc, setArc, clearArc, getDay, setCompleted, addNote } = useTrackerData(student.slug)
+  const { arc, setArc, clearArc, getDay, setCompleted, addNote } = useTrackerData(student.slug, course.defaultArc)
   const { days: flatDays, error } = useCoursework(course.mdFile)
   const { manifest, upload, remove } = useAssets(student.slug)
 
@@ -108,7 +108,7 @@ function TrackerView({ student, course, isDAD }) {
         isDAD={isDAD}
         completed={completedTop}
         total={totalTop}
-        onChangeArc={!isDAD && arc ? handleChangeArc : undefined}
+        onChangeArc={!isDAD && arc && !course.defaultArc ? handleChangeArc : undefined}
         extraNav={
           isDAD && (
             <Link
@@ -159,7 +159,7 @@ function TrackerView({ student, course, isDAD }) {
 }
 
 function FilesViewRoute({ student, course }) {
-  const { arc } = useTrackerData(student.slug)
+  const { arc } = useTrackerData(student.slug, course.defaultArc)
   const { days: flatDays, error } = useCoursework(course.mdFile)
   const { manifest, upload, remove } = useAssets(student.slug)
   const tree = useMemo(() => buildDayTree(flatDays), [flatDays])
