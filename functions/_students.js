@@ -14,11 +14,11 @@ export const STUDENTS = {
     ],
   },
   contentcreator: {
-    name: 'Content Creator',
+    name: 'Content Creator', // placeholder — update once you have a real student name
     courses: [
       {
         slug: 'main',
-        title: 'Content Creator',
+        title: 'Creator Business',
         mdFile: 'content-creator.md',
         r2Prefix: 'content-creator/',
         mirrorPrefix: 'content-creator/',
