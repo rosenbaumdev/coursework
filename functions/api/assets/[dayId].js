@@ -6,13 +6,13 @@ import {
   CATEGORIES,
   CATEGORY_EXTS,
   DAY_ID_RE,
-  RAW_BASE,
   SAFE_NAME_RE,
   fileExt,
   fileUrl,
   jsonResponse,
   errorResponse,
   r2Key,
+  rawUrl,
   sanitizeFilename,
 } from '../../_shared.js'
 import { syncToGitHub } from '../../_github.js'
@@ -56,7 +56,7 @@ export async function onRequestPost({ request, params, env }) {
     if (!env.GITHUB_PAT) {
       mirrorResult = { ok: false, error: 'GITHUB_PAT not configured' }
     } else {
-      mirrorResult = await syncToGitHub(dayId, filename, body, env.GITHUB_PAT)
+      mirrorResult = await syncToGitHub(dayId, filename, body, env)
     }
     customMetadata.mirror_status = mirrorResult.ok ? 'synced' : 'failed'
     if (mirrorResult.syncedAt) customMetadata.mirror_synced_at = mirrorResult.syncedAt
@@ -82,7 +82,7 @@ export async function onRequestPost({ request, params, env }) {
       status: mirrorResult.ok ? 'synced' : 'failed',
       syncedAt: mirrorResult.syncedAt || null,
       error: mirrorResult.error || null,
-      url: mirrorResult.ok ? `${RAW_BASE}/day-${dayId}/${filename}` : undefined,
+      url: mirrorResult.ok ? rawUrl(env, dayId, filename) : undefined,
     }
   }
 

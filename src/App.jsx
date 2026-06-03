@@ -7,6 +7,7 @@ import FilesView from './components/FilesView.jsx'
 import { useTrackerData } from './hooks/useTrackerData.js'
 import { useAssets } from './hooks/useAssets.js'
 import { buildDayTree, parseCourseWork } from './data/parseCourseWork.js'
+import { COURSE_SLUG, COURSE_TITLE } from './courseConfig.js'
 
 function useCoursework() {
   const [days, setDays] = useState([])
@@ -14,7 +15,7 @@ function useCoursework() {
 
   useEffect(() => {
     let cancelled = false
-    fetch('/coursework.md')
+    fetch(`/${COURSE_SLUG}.md`)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.text()
@@ -135,12 +136,12 @@ function TrackerView() {
                   getAssetsFor={(id) => manifest[id]}
                   getState={(id) => getDay(id)}
                   onToggle={(next) => setCompleted(day.id, next)}
-                  onAddNote={(text) => addNote(day.id, isDAD ? 'dad' : 'jordan', text)}
+                  onAddNote={(text) => addNote(day.id, isDAD ? 'dad' : 'student', text)}
                   onUploadAsset={(id, category, file) => upload(id, category, file)}
                   onRemoveAsset={(id, category, filename) => remove(id, category, filename)}
                   onToggleChild={(id, next) => setCompleted(id, next)}
                   onAddNoteChild={(id, text) =>
-                    addNote(id, isDAD ? 'dad' : 'jordan', text)
+                    addNote(id, isDAD ? 'dad' : 'student', text)
                   }
                   extraSlot={showArcPicker ? <InlineArcPicker onSelect={setArc} /> : null}
                 />
@@ -177,6 +178,10 @@ function FilesViewRoute() {
 }
 
 export default function App() {
+  useEffect(() => {
+    document.title = COURSE_TITLE
+  }, [])
+
   return (
     <Routes>
       <Route path="/dad/files" element={<FilesViewRoute />} />

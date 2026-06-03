@@ -27,7 +27,7 @@ export async function onRequestDelete({ params, env }) {
   await env.STORAGE.delete(key)
 
   if (category === 'claude-prompt' && env.GITHUB_PAT) {
-    await removeFromGitHub(dayId, filename, env.GITHUB_PAT)
+    await removeFromGitHub(dayId, filename, env)
   }
 
   return jsonResponse({ ok: true })
