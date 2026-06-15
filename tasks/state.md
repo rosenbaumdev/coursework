@@ -1,52 +1,57 @@
 # Coursework Tracker — Session State
-Last updated: 2026-05-25 (phase 4)
+Last updated: 2026-06-15
 
-## Completed This Session (phase 4: public access + claude.ai integration)
+## TL;DR (resume point)
+- App is **live + serverless** at `https://coursework.kitbord.com/jordan` (Sports Betting AI) and `https://coursework.kitbord.com/contentcreator` (Creator Business, niche "Perimenopause + Women's Wellness").
+- Single Cloudflare Pages project (`coursework`), single R2 bucket (`coursework-assets`), one shared GitHub mirror repo (`rosenbaumdev/coursework`) with per-course path prefixes.
+- **`/dad*` and `/<student>/api/assets/*` are wide open** to the public internet. **Phase Q (CF Access) is the next priority.**
+- Phase R cleanup (delete `server/`, `~/.coursework-mirror-clone/`, stale CLAUDE.md sections) still pending.
 
-### Public exposure via Cloudflare Tunnel
-- App publicly reachable at **https://coursework.rosenbaum.us**
-- Tunnel: cloudflared with HTTP/2 protocol (NOT QUIC — Comcast/home network drops UDP). Background task currently `bxsroxllp`.
-- DNS: CF-managed CNAME → tunnel
-- WAF Custom Rule "Allow AI fetchers on coursework" skips Super Bot Fight Mode + Browser Integrity Check for `coursework.rosenbaum.us` hostname
-- Bot Fight Mode disabled zone-wide (no per-hostname scoping on Free plan)
-- Cloudflare "Manage your robots.txt" set to allow AI bots (was auto-generating Disallow rules for ClaudeBot)
-
-### Claude prompt launcher
-- New asset category `claude-prompt` (md/txt files) — uploadable via /dad/files
-- Per-day "Start with Claude" launcher (`ClaudeLauncher.jsx`) shows when prompts exist
-- Two buttons per prompt: "Open in claude.ai" (URL pointer) and "Copy full prompt" (clipboard fallback)
-- "view raw" link to inspect prompt source
-
-### GitHub mirror (the critical fix)
-- claude.ai's WebFetch tool has an implicit domain allowlist; coursework.rosenbaum.us isn't on it. raw.githubusercontent.com is.
-- Auto-mirror: claude-prompt uploads sync to `github.com/rosenbaumdev/coursework` (public) via PAT
-- Mirror clone at `~/.coursework-mirror-clone/`, PAT at `~/.coursework-github-token` (chmod 600), sync state at `~/.coursework-mirror-state.json`
-- New module `server/githubMirror.js` handles sync/remove
-- Launcher uses `mirror.url` (raw.githubusercontent.com) in pointer prompt when available; falls back to local URL
-- Sync badge in UI: ✓ mirrored / ⏳ pending / ✗ failed
-- Express request logging middleware added
-
-### End-to-end verified
-- Day 0 instructor briefing (30KB) → uploaded → mirrored → claude.ai successfully fetches via raw URL → session begins ✅
+## Completed this session arc (May 28 – June 15)
+- **Phase A–F**: CF-native migration. Tunnel + Express retired. Pages Functions handle uploads/manifest/file proxy. R2 bucket `coursework-assets`. GitHub mirror via Contents API (no git CLI).
+- **Phase G–I**: env-driven multi-course attempt + Jordan domain swap (rosenbaum.us → jordan-sports-betting.kitbord.com). Superseded by Phase N.
+- **Phase N**: path-per-student multi-tenant refactor. Single domain `coursework.kitbord.com`. Routes `/<studentSlug>`, `/<studentSlug>/dad`, `/<studentSlug>/dad/files`, `/<studentSlug>/api/assets/*`, `/<studentSlug>/files/*`. Splash on `/`. Old subdomain `jordan-sports-betting.kitbord.com` 301-redirects via `functions/_middleware.js`.
+- **Phase O**: `coursework.kitbord.com` attached to Pages project + CNAME via API. Cert live.
+- **Phase P**: content-creator course set up. 15 briefs uploaded → R2 + GH mirror at `content-creator/day-N/`. `public/content-creator.md` authored from briefs.
+- **Rich Day 1–15 bodies**: both courses' MDs rebuilt with Day-0-style structure (Theme, pitch blockquote, Session Goal, numbered What You'll Build, Tools, Teaching Moments, Confusion Points, Stretch Goals). See [[feedback-rich-day-format]].
+- **defaultArc**: per-course config. Content-creator gets "Perimenopause + Women's Wellness" since no Day-0 picker. Header hides "change" link when defaultArc is set.
 
 ## In Progress
-- Nothing. Both phase-3 work (auth + engagement tracking) and persistence (launchd) are still pending — see Next.
+- Nothing. Both Phases Q and R are pending but neither was started.
 
 ## Next Session Starts Here
-Pick one of these:
-1. **Phase 3: auth + engagement tracking** (laid out in commit history of tasks/todo.md but not started). Jordan login + Dad login, server-side per-user view counts, red/yellow/green indicators on assets and days.
-2. **Persistence (launchd plists)** for both Express + cloudflared so they survive jserver reboots / claude code session ends.
-3. **Sub-day content** — Jordan's Day 0.1 / 0.2 if Jonathan has the material to drop in. The data model + UI already support sub-days; just need frontmatter blocks added to `public/coursework.md`.
+
+**Priority 1 — Phase Q: CF Access on the open routes.** The site has been wide open for ~2 weeks. In the CF Zero Trust dashboard, add two Self-hosted Access apps both gated to email `joalro@yahoo.com` via One-Time PIN:
+1. `coursework.kitbord.com` path `/<student>/dad*` (covers `/jordan/dad`, `/jordan/dad/files`, `/contentcreator/dad`, etc.)
+2. `coursework.kitbord.com` path `/<student>/api/assets/*` (sub-paths only — bare `/<student>/api/assets` stays public so student manifest GETs work)
+
+Walk-through is in the original Phase K plan; basically Add Application → Self-hosted → path → identity providers (One-Time PIN is on by default) → policy (Allow, Include = email = joalro@yahoo.com).
+
+**Priority 2 — Phase R cleanup.**
+- `rm -rf server/`
+- `rm -rf ~/.coursework-mirror-clone/ ~/.coursework-mirror-state.json`
+- Delete the stray `assets/Daily Instructor Briefs - content-course/day-{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15}/` directory (literal brace-expansion folder, empty/harmless)
+- Update `CLAUDE.md` to reflect multi-tenant + serverless architecture (current text still references Express + tunnel — wholesale rewrite of the architecture sections).
+- Update `tasks/decisions.md` to supersede old single-course / subdomain-per-course entries.
+
+**Priority 3 (waits on Jonathan)** — Real student name + course title framing for the contentcreator course. Edit `src/students.js` AND `functions/_students.js` in lockstep. Currently `name: 'Content Creator'`, `title: 'Creator Business'`, `defaultArc: "Perimenopause + Women's Wellness"`.
+
+## How to deploy (any session)
+```
+CLOUDFLARE_API_TOKEN=$(cat ~/.coursework-cf-token) npm run deploy
+```
+The token at `~/.coursework-cf-token` (chmod 600) has Pages Edit + R2 Edit + DNS Edit scopes. Don't use `wrangler login` — its OAuth flow is flaky from Claude Code sessions and the resulting token has weaker scopes than the API token.
 
 ## Open Questions / Blockers
-- Phase 3 (auth + engagement) was planned but never started. The plan is in earlier `tasks/todo.md` revisions if needed.
-- Background tasks alive only for this session:
-  - Express: `bceh913iw` (port 4174)
-  - Cloudflared tunnel: `bxsroxllp` (HTTP/2 protocol)
-- GitHub raw URLs cache at CF edge for ~5 min after deletion. If a prompt is renamed/replaced, raw URL may serve stale for that window. Not a problem in practice (users don't notice).
+- None right now. CF Access can be done any time. Phase R is housekeeping.
 
 ## Temporary Notes
-- PAT scope: `rosenbaumdev/coursework` only, Contents R/W + Metadata R, no expiration. Token name in GitHub is "coursework-mirror".
-- `~/.coursework-mirror-clone/` is a separate git working tree, NOT inside the project. Don't accidentally commit storage/ contents there.
-- Bundle: 350 KB JS / 109 KB gzip. Acceptable.
-- Active uploads on Day 0: podcast (66 MB m4a), deck pdf (650 KB), claude-prompt briefing (30 KB).
+- Bundle size: ~352 KB JS / 110 KB gzip. Acceptable.
+- Both course MDs ~40 KB after the rich-body rewrite — about 10× the previous prose summaries.
+- localStorage is per-domain. Any old notes on `coursework.rosenbaum.us` or `jordan-sports-betting.kitbord.com` are stranded. Negligible content was lost.
+- Pages auto-deploys on `wrangler pages deploy`, NOT on git push. Git push to `rosenbaumdev/coursework` doesn't trigger anything Pages-side — GH integration was never wired up.
+- Functions middleware (`functions/_middleware.js`) intercepts every request, including static. It currently handles the old-subdomain 301 redirect.
+- `wrangler.toml [vars]` is currently empty (no `GITHUB_PATH_PREFIX` etc.) — the multi-tenant refactor moved that logic into `students.js`/`_students.js`. If a future Function ever needs an env var, put it in `[vars]` so it survives `wrangler pages deploy` clobbering.
+- `scripts/set-pages-env.mjs` was deleted (one-off, no longer needed).
+- The deploy:jordan / deploy:cc scripts in package.json were collapsed to a single `deploy`.
+- Pages reserved binding name `ASSETS` — we use `STORAGE`. Don't rename.
