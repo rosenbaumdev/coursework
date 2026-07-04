@@ -5,3 +5,11 @@ pages_build_output_dir = "./dist"
 [[r2_buckets]]
 binding = "STORAGE"
 bucket_name = "coursework-assets"
+
+# Private interview/ingestion data (session state + synthesized profiles).
+# Deliberately a separate bucket: the public /files proxy can read any key in
+# coursework-assets (Jordan's course r2Prefix is empty), so sensitive profiles
+# must NOT live there. No public Function references this binding.
+[[r2_buckets]]
+binding = "INTERVIEW"
+bucket_name = "coursework-interview"

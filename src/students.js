@@ -36,6 +36,20 @@ export const STUDENTS = {
       },
     ],
   },
+  zachary: {
+    name: 'Zachary',
+    courses: [
+      {
+        slug: 'noob-to-ai-entrepreneur',
+        title: 'Noob to AI Entrepreneur',
+        // Course content is generated from the ingestion interview's profile;
+        // placeholder until then. Zachary's entry point is /zachary/interview.
+        mdFile: 'zachary-noob-to-ai-entrepreneur.md',
+        r2Prefix: 'zachary/',
+        mirrorPrefix: 'zachary/',
+      },
+    ],
+  },
 }
 
 export function getStudent(slug) {

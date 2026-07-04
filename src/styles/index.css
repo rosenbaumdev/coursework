@@ -22,4 +22,19 @@
   .check-pop:active {
     transform: scale(0.92);
   }
+  /* Coached-session canvas: fade/slide a new directive in so a content change
+     visibly "drives" the pane. Re-triggers on remount (key={directive.id}). */
+  .session-fade {
+    animation: sessionFade 220ms ease;
+  }
+  @keyframes sessionFade {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 }

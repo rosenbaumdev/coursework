@@ -4,6 +4,8 @@ import Header from './components/Header.jsx'
 import ArcSelector from './components/ArcSelector.jsx'
 import DayCard from './components/DayCard.jsx'
 import FilesView from './components/FilesView.jsx'
+import InterviewView from './components/InterviewView.jsx'
+import SessionView from './components/session/SessionView.jsx'
 import Splash from './components/Splash.jsx'
 import { useTrackerData } from './hooks/useTrackerData.js'
 import { useAssets } from './hooks/useAssets.js'
@@ -203,6 +205,9 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Splash />} />
+      <Route path="/session" element={<SessionView />} />
+      <Route path="/:studentSlug/interview" element={<InterviewView />} />
+      <Route path="/:studentSlug/session" element={<SessionView />} />
       <Route
         path="/:studentSlug/dad/files"
         element={<StudentRoute render={(p) => <FilesViewRoute {...p} />} />}

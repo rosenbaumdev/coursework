@@ -6,5 +6,6 @@ storage
 *.log
 .env
 .env.local
+.dev.vars
 .claude/
 .wrangler/

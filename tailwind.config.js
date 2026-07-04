@@ -15,7 +15,7 @@ export default {
       },
       fontFamily: {
         sans: ['"DM Sans"', 'system-ui', 'sans-serif'],
-        mono: ['"DM Mono"', '"Space Mono"', 'ui-monospace', 'monospace'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       boxShadow: {
         card: '0 1px 2px rgba(17, 17, 17, 0.04)',

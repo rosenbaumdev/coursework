@@ -1,5 +1,17 @@
 # Architectural Decisions
 
+## Ingestion interview: dedicated private R2 bucket `coursework-interview` — 2026-06-30
+**What:** The onboarding-interview's session state and synthesized profiles live in a SEPARATE R2 bucket (`coursework-interview`, binding `INTERVIEW`), never the shared `coursework-assets`. Keyed by student×course: `sessions/<slug>/<course>.json`, `profiles/<slug>/<course>-profile.md`. No public Function references the `INTERVIEW` binding.
+**Why:** The public file proxy `functions/[studentSlug]/files/[[path]].js` serves any key under a course's `r2Prefix`, and Jordan's `r2Prefix` is the empty string — so `/jordan/files/<anything>` can read the ENTIRE `coursework-assets` bucket. A profile containing "Flags for Jonathan" cannot live anywhere reachable that way. A separate bucket with no public reader is the only robust fix that doesn't depend on the still-pending Phase Q (CF Access). R2 (not KV) because turn-by-turn session state needs strong read-after-write consistency.
+**Alternatives considered:** (1) Store in `coursework-assets` under an obscure prefix — rejected, Jordan's empty-prefix proxy defeats obscurity. (2) Cloudflare KV — rejected, eventual consistency risks a turn reading stale session state across colos. (3) Wait for CF Access to gate everything — rejected, blocks launch on unrelated work and still wouldn't stop Jordan's proxy reading the bucket.
+**Confidence:** 90%. Profile delivery is MVP (Claude retrieves from R2 on request); a gated dad-view comes with the proctor/dashboard phase.
+
+## Ingestion interview keyed by student×course, not student — 2026-06-30
+**What:** "One-and-done" (refuse a new interview if a completed profile exists) is scoped to (student, course), not the student alone. A student who later takes a different course gets a fresh ingestion interview and a separate profile.
+**Why:** Jonathan's point — the ingestion interview is course-specific (the AI-entrepreneur interview ≠ a French-cooking interview), so the profile is per-course. Keying one-and-done by student alone would wrongly block a student's second, unrelated course.
+**Alternatives considered:** Per-student single profile — rejected, conflates distinct courses' calibration.
+**Confidence:** 95%. Directly from Jonathan.
+
 ## Coursework loaded from `public/coursework.md` (not hardcoded) — 2026-05-23
 **What:** The 21-day curriculum lives in `public/coursework.md` as frontmatter-delimited blocks, fetched at runtime and parsed by `src/data/parseCourseWork.js`. The React code never sees the curriculum content directly.
 **Why:** CLAUDE.md mandates this so the coursework can be swapped (e.g. arc-specific rewrites) without touching React. The original build prompt called for a hardcoded `CURRICULUM` constant, but CLAUDE.md is the source of truth and the swap-without-rebuild property is genuinely useful — Jordan picking his arc will generate a new MD file.
