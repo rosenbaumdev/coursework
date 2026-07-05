@@ -1,125 +1,288 @@
 // POST /<studentSlug>/api/session/message
-// Stateless, context-aware coached-session chat. The client sends the running
-// conversation plus a description of what's on the canvas (and any region the
-// learner marquee-selected); the server streams back a reply as SSE. No session
-// store — the client owns the transcript for this prototype.
+//   body: { message, seq, day?: "1", canvasLiveState?, selection? }
+// One lesson turn, STREAMED as SSE. This REPLACES the prototype's stateless
+// open chat: the server now owns the session (R2), requires a known student +
+// an in-progress lesson, enforces the turn-sequence guard and the day's turn
+// budget, and stays authoritative on ticks (typed: check needs evidence,
+// artifact needs its gate) and on the canvas (3-tier [SHOW:]).
 //
-// Provider-abstracted: default is Anthropic Haiku; set SESSION_LLM_PROVIDER=ollama
-// (+ OLLAMA_URL / OLLAMA_MODEL) to use a local llama/Gemma model in dev. (Edge→
-// localhost only works under local `wrangler pages dev`, not on deployed CF.)
-//
-// Frames: { type:'delta', text } · { type:'done' } · { type:'error', message }
+// Wire protocol (each SSE frame is `data: <json>\n\n`):
+//   { type: 'delta',  text }                                   — reply chunk
+//   { type: 'canvas', directive }                              — canvas change
+//   { type: 'done',   message, sessionDone, suggestions,
+//     ticked, totalRequired, focus, seq, canvasTarget }         — turn settled
+//   { type: 'error',  message }                                 — turn failed; not persisted
 
 import { errorResponse } from '../../../_shared.js'
-import { callAnthropicStream, consumeAnthropicSSE } from '../../../_interview.js'
+import { getStudent, getCourse } from '../../../_students.js'
+import {
+  parseTurn,
+  applyTurnEffects,
+  safeEmitLen,
+  callAnthropicStream,
+  consumeAnthropicSSE,
+} from '../../../_turnCore.js'
+import {
+  getSessionPack,
+  progressInfo,
+  isComplete,
+  loadLesson,
+  saveLesson,
+  buildSessionSystemPrompt,
+  buildSessionEnvelope,
+  makeTickGuard,
+  rejectedTicks,
+  resolveCanvasChange,
+  foldHistory,
+  focusIdOf,
+  maxTurnsFor,
+  resolveChips,
+  looksAnswerable,
+  ensureNextAsk,
+  applyArtifactWrites,
+  prepareOwnershipVerdicts,
+  mirrorArtifacts,
+  MAX_NEW_TICKS_PER_TURN,
+  MIN_TURNS_BEFORE_COMPLETE,
+  SESSION_MODEL,
+  SESSION_EFFORT,
+} from '../../../_session.js'
+import { TANGENT_TABLE_ID } from '../../../_sessionPacks.js'
 
-const HAIKU = 'claude-haiku-4-5'
 const enc = new TextEncoder()
 const frame = (obj) => enc.encode(`data: ${JSON.stringify(obj)}\n\n`)
 
-const SYSTEM = `You are the coach inside a live "coached session." The learner works in a two-pane app: a chat with you on one side, and a content canvas on the other showing whatever the moment calls for — reading, a slide deck, a video, an image, a web browser, a terminal sandbox, or an editable artifact.
+export async function onRequestPost({ params, env, request }) {
+  const { studentSlug } = params
+  const student = getStudent(studentSlug)
+  const course = getCourse(studentSlug)
+  if (!student || !course) return errorResponse('Unknown student', 404)
 
-You can SEE what's on their canvas (it's given to you below as [CANVAS]). Talk about it naturally: answer questions about what they're looking at, point things out, react to what they select. Be concise, warm, and concrete — a good tutor, not a lecture. If they marquee-select a region it's given as [SELECTION]; treat it as "the thing they're pointing at."`
-
-// Keep only user/assistant turns, drop leading assistant messages, merge consecutive
-// same-role turns, and require the last turn to be from the user (Anthropic rules).
-function sanitize(messages) {
-  const arr = (Array.isArray(messages) ? messages : [])
-    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
-    .map((m) => ({ role: m.role, content: m.content }))
-  while (arr.length && arr[0].role === 'assistant') arr.shift()
-  const out = []
-  for (const m of arr) {
-    const last = out[out.length - 1]
-    if (last && last.role === m.role) last.content += '\n\n' + m.content
-    else out.push({ ...m })
-  }
-  if (!out.length || out[out.length - 1].role !== 'user') return null
-  return out
-}
-
-function buildSystem(canvasContext, selection) {
-  let s = SYSTEM
-  s += `\n\n[CANVAS]\n${canvasContext || 'The canvas is empty.'}`
-  if (selection && (selection.text || selection.note)) {
-    s += `\n\n[SELECTION] The learner is pointing at this part of the canvas: ${selection.text || selection.note}`
-  }
-  return s
-}
-
-// Local Ollama chat, streamed (newline-delimited JSON). Yields text via onText.
-async function streamOllama(env, { system, messages }, onText) {
-  const url = (env.OLLAMA_URL || 'http://localhost:11434').replace(/\/$/, '')
-  const res = await fetch(`${url}/api/chat`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: env.OLLAMA_MODEL || 'llama3.2',
-      stream: true,
-      messages: [{ role: 'system', content: system }, ...messages],
-    }),
-  })
-  if (!res.ok) throw new Error(`Ollama ${res.status}: ${(await res.text()).slice(0, 300)}`)
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buf = ''
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-    let nl
-    while ((nl = buf.indexOf('\n')) !== -1) {
-      const line = buf.slice(0, nl).trim()
-      buf = buf.slice(nl + 1)
-      if (!line) continue
-      try {
-        const j = JSON.parse(line)
-        if (j.message?.content) onText(j.message.content)
-      } catch {
-        /* partial line */
-      }
-    }
-  }
-}
-
-export async function onRequestPost({ env, request }) {
-  // The coached-session chat is generic (stateless, model-only) — it doesn't
-  // require a known student, so it works on the bare `/session` route too.
   let body
   try {
     body = await request.json()
   } catch {
     return errorResponse('Invalid JSON body')
   }
+  const message = (body?.message || '').trim()
+  if (!message) return errorResponse('Empty message')
 
-  const messages = sanitize(body?.messages)
-  if (!messages) return errorResponse('No user message to respond to')
-  const system = buildSystem(body?.canvasContext, body?.selection)
-  const provider = env.SESSION_LLM_PROVIDER || 'anthropic'
+  const dayId = String(body?.day ?? '1')
+  const pack = getSessionPack(course.slug, dayId)
+  if (!pack) return errorResponse('No session configured for this day', 404)
+
+  const session = await loadLesson(env, studentSlug, course.slug, dayId)
+  if (!session || session.v !== 2) {
+    return errorResponse('No session in progress — start one first.', 404)
+  }
+  if (session.completed) return errorResponse('This session is already complete.', 409)
+
+  // Turn-sequence guard: a stale/duplicate submit (second tab, refresh replay)
+  // must not silently drop or double-apply a turn. Client echoes the seq it
+  // last saw; mismatch → 409 with the authoritative seq so it can resync.
+  const clientSeq = Number(body?.seq)
+  if (!Number.isInteger(clientSeq) || clientSeq !== session.seq) {
+    return new Response(
+      JSON.stringify({ error: 'Out of sync — reload the session.', seq: session.seq }),
+      { status: 409, headers: { 'content-type': 'application/json' } }
+    )
+  }
+
+  // Day turn budget (pack-declared ceiling — defense in depth alongside auth).
+  if (session.totalUserTurns >= maxTurnsFor(pack)) {
+    return errorResponse('Today’s turn budget is used up.', 409)
+  }
+
+  // F1 settle-merge, part 1: snapshot artifact write-times at turn start so
+  // learner saves that land mid-stream are never clobbered by the settle save.
+  const artifactsAtTurnStart = Object.fromEntries(
+    Object.entries(session.artifacts).map(([id, a]) => [id, a.updatedAt])
+  )
+
+  const focusBefore = focusIdOf(pack, session)
+  const system = `${buildSessionSystemPrompt(pack, session.studentName)}\n\n${buildSessionEnvelope(session, pack, body?.canvasLiveState, body?.selection)}`
+  const turnMessages = [...session.history, { role: 'user', content: message }]
 
   // Open the upstream BEFORE committing to a 200 SSE body so auth/credit errors
-  // surface as a normal JSON error.
-  let upstream = null
-  if (provider === 'anthropic') {
-    try {
-      upstream = await callAnthropicStream(env, { model: HAIKU, system, messages, max_tokens: 800 })
-    } catch (err) {
-      return errorResponse(`Chat failed: ${err.message}`, 502)
-    }
+  // surface as a normal JSON error the client can show.
+  let upstream
+  try {
+    upstream = await callAnthropicStream(env, {
+      model: SESSION_MODEL,
+      max_tokens: 3000,
+      thinking: { type: 'adaptive' },
+      effort: SESSION_EFFORT,
+      system,
+      messages: turnMessages,
+    })
+  } catch (err) {
+    return errorResponse(`Turn failed: ${err.message}`, 502)
   }
 
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const onText = (t) => controller.enqueue(frame({ type: 'delta', text: t }))
-        if (provider === 'ollama') {
-          await streamOllama(env, { system, messages }, onText)
-        } else {
-          await consumeAnthropicSSE(upstream, (delta) => onText(delta))
+        // Pump deltas with the control-tag guard: never let a partial
+        // [TICK:/[TABLE:/[SHOW:/[SUGGESTED_REPLIES: flash on screen.
+        let emitted = 0
+        const pendingAnnounced = new Set()
+        const full = await consumeAnthropicSSE(upstream, (_delta, acc) => {
+          const cut = safeEmitLen(acc)
+          if (cut > emitted) {
+            controller.enqueue(frame({ type: 'delta', text: acc.slice(emitted, cut) }))
+            emitted = cut
+          }
+          // Once a complete [ARTIFACT: id] header is in, announce the draft so
+          // the client can show a "drafting…" state (streaming freezes while the
+          // block accumulates — this kills the dead-air feel).
+          for (const m of acc.matchAll(/\[ARTIFACT:\s*([^\]\n]+?)\s*\]/g)) {
+            const id = m[1].trim()
+            if (id && !pendingAnnounced.has(id)) {
+              pendingAnnounced.add(id)
+              controller.enqueue(frame({ type: 'artifactPending', id }))
+            }
+          }
+        })
+
+        // Turn settled — parse, apply (server-authoritative), persist.
+        const parsed = parseTurn(full)
+        let cleanText = parsed.cleanText
+
+        // Usher backstop (#11): a turn must never trail off with nothing to do.
+        // Any appended ask is streamed as a late delta so the client shows it.
+        let usherAsk = ''
+        if (!looksAnswerable(cleanText)) {
+          usherAsk = await ensureNextAsk(env, session, pack, cleanText)
+          if (usherAsk) {
+            cleanText += `\n\n${usherAsk}`
+            controller.enqueue(frame({ type: 'delta', text: `\n\n${usherAsk}` }))
+          }
         }
-        controller.enqueue(frame({ type: 'done' }))
+
+        const turnNo = session.totalUserTurns + 1
+
+        // F1 settle-merge, part 2: one extra R2 read; any artifact whose stored
+        // updatedAt is newer than the turn-start snapshot was saved by the
+        // learner mid-turn — adopt it, and DROP Director writes for it
+        // (learner wins, deterministically).
+        const conflictedIds = []
+        try {
+          const stored = await loadLesson(env, studentSlug, course.slug, dayId)
+          for (const [id, a] of Object.entries(stored?.artifacts || {})) {
+            const snap = artifactsAtTurnStart[id]
+            if (a.updatedAt && (!snap || a.updatedAt > snap)) {
+              session.artifacts[id] = a
+              conflictedIds.push(id)
+            }
+          }
+        } catch {
+          /* merge read is belt-and-braces; the client also defers mid-turn flushes */
+        }
+
+        // Director artifact writes (contract §2 v2) — BEFORE tick application so
+        // the guard sees fresh lastDirectorWriteAt (same-turn draft-and-tick is
+        // structurally impossible), and BEFORE canvas resolution so a same-turn
+        // [SHOW: artifact:id] resolves with the new content.
+        const { applied: artifactApplied, dropped: artifactDropped } = applyArtifactWrites(
+          session,
+          pack,
+          parsed.artifactWrites,
+          { conflictedIds }
+        )
+        session.artifactTruncated = Boolean(parsed.artifactTruncated)
+        session.droppedArtifactWrites = artifactDropped
+          .filter((d) => d.why === 'learner-newer')
+          .map((d) => d.id)
+
+        // Ownership verdicts (gate layer c) for any attempted artifact ticks.
+        await prepareOwnershipVerdicts(env, session, pack, parsed.ticks)
+
+        const tickedBefore = new Set(
+          Object.entries(session.inventoryState)
+            .filter(([, s]) => s.ticked)
+            .map(([id]) => id)
+        )
+        applyTurnEffects(session, pack, parsed, turnNo, {
+          maxNewTicks: MAX_NEW_TICKS_PER_TURN,
+          tickGuard: makeTickGuard(pack, session),
+          extraTableIds: [TANGENT_TABLE_ID],
+        })
+        session.rejectedTicks = rejectedTicks(pack, session, parsed.ticks, tickedBefore, parsed.evidence)
+
+        // Artifact frames BEFORE the canvas frame (the pane may not be on canvas).
+        for (const a of artifactApplied) {
+          const art = session.artifacts[a.id]
+          const gate = pack.artifacts[a.id]
+          controller.enqueue(
+            frame({
+              type: 'artifact',
+              id: a.id,
+              content: art.content,
+              by: 'director',
+              chars: a.chars,
+              minChars: gate.minChars,
+            })
+          )
+        }
+
+        // 3-tier canvas: model [SHOW:] → new focus's default → keep current.
+        const canvasDirective = resolveCanvasChange(pack, session, parsed.show, focusBefore)
+        if (canvasDirective) controller.enqueue(frame({ type: 'canvas', directive: canvasDirective }))
+
+        // Usher chips (#6): model tag → Haiku pass → deterministic extraction.
+        const suggestions = await resolveChips(env, {
+          tagSuggestions: parsed.suggestions,
+          cleanText,
+          studentName: session.studentName,
+        })
+
+        session.history.push({ role: 'user', content: message })
+        session.history.push({ role: 'assistant', content: cleanText })
+        session.transcriptLog.push(
+          { role: 'user', raw: message, ts: new Date().toISOString() },
+          {
+            role: 'assistant',
+            raw: full,
+            ticks: parsed.ticks,
+            evidence: parsed.evidence,
+            rejected: session.rejectedTicks,
+            tables: parsed.tables,
+            show: parsed.show,
+            usherAsk: usherAsk || undefined,
+            ts: new Date().toISOString(),
+          }
+        )
+        session.totalUserTurns = turnNo
+        session.lastSuggestions = suggestions
+        session.seq += 1
+
+        const done =
+          isComplete(pack, session.inventoryState) && turnNo >= MIN_TURNS_BEFORE_COMPLETE
+        if (done) session.completed = true
+
+        // Window memory: fold aged turns into the running summary (inline,
+        // never-throw; on failure we just carry full history one more turn).
+        await foldHistory(env, session)
+
+        await saveLesson(env, session)
+        // Durable per-artifact copies (private bucket) whenever a turn changed them.
+        if (artifactApplied.length) {
+          await mirrorArtifacts(env, session, artifactApplied.map((a) => a.id))
+        }
+
+        controller.enqueue(
+          frame({
+            type: 'done',
+            message: cleanText,
+            sessionDone: Boolean(session.completed),
+            suggestions,
+            seq: session.seq,
+            canvasTarget: session.canvasTarget,
+            ...progressInfo(pack, session.inventoryState),
+          })
+        )
       } catch (err) {
-        controller.enqueue(frame({ type: 'error', message: `Chat failed: ${err.message}` }))
+        controller.enqueue(frame({ type: 'error', message: `Turn failed: ${err.message}` }))
       } finally {
         controller.close()
       }

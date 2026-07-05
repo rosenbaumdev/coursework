@@ -1,3 +1,43 @@
+import { useState } from 'react'
+
+// Extract plain text from a React children tree (for copy-to-clipboard).
+function textOf(node) {
+  if (node == null) return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join('')
+  if (node.props?.children) return textOf(node.props.children)
+  return ''
+}
+
+// Code block with a copy control in the corner (#13).
+function PreBlock({ children }) {
+  const [copied, setCopied] = useState(false)
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(textOf(children).replace(/\n$/, ''))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1200)
+    } catch {
+      /* clipboard unavailable — no-op */
+    }
+  }
+  return (
+    <div className="relative group/pre my-2">
+      <pre className="bg-white border border-rule rounded-md p-3 overflow-x-auto text-[12px]">
+        {children}
+      </pre>
+      <button
+        type="button"
+        onClick={copy}
+        aria-label="Copy code"
+        className="absolute top-1.5 right-1.5 rounded border border-rule bg-white/90 px-1.5 py-0.5 font-mono text-[10px] text-muted hover:text-ink opacity-70 md:opacity-0 md:group-hover/pre:opacity-100 transition"
+      >
+        {copied ? '✓' : '⧉'}
+      </button>
+    </div>
+  )
+}
+
 // Chat-tuned markdown map: tighter than the day-card renderer, sized for bubbles.
 // Headers read as conversational emphasis (a greeting "# Hey Zachary"), not the
 // muted mono section labels used elsewhere. Shared by the interview view and the
@@ -26,11 +66,7 @@ export const CHAT_MD = {
     ) : (
       <code className="font-mono text-[12px]">{children}</code>
     ),
-  pre: ({ children }) => (
-    <pre className="bg-white border border-rule rounded-md p-3 overflow-x-auto text-[12px] my-2">
-      {children}
-    </pre>
-  ),
+  pre: ({ children }) => <PreBlock>{children}</PreBlock>,
   table: ({ children }) => (
     <div className="overflow-x-auto my-2">
       <table className="text-[13px]">{children}</table>

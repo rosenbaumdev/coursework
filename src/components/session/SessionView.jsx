@@ -6,7 +6,7 @@ import ChatInput from '../chat/ChatInput.jsx'
 import ContentCanvas from './ContentCanvas.jsx'
 import SplitPane from './SplitPane.jsx'
 import OrientationToggle from './OrientationToggle.jsx'
-import { useScriptedSessionDriver } from '../../session/useSessionDriver.js'
+import { useScriptedSessionDriver, useSSESessionDriver } from '../../session/useSessionDriver.js'
 import { SHOWCASE_SESSION } from '../../session/scriptedSession.js'
 import { describeCanvas } from '../../session/describeCanvas.js'
 import { getStudent } from '../../students.js'
@@ -39,15 +39,42 @@ export default function SessionView() {
   const [selecting, setSelecting] = useState(false)
   const [pendingSelection, setPendingSelection] = useState(null)
   const liveStateRef = useRef(null)
+  const syncArtifactRef = useRef(null)
+  const seenIdsRef = useRef(new Set()) // directive ids the learner actually had on screen
+  const [seenVersion, setSeenVersion] = useState(0) // bump to re-render when seen-set changes
+  function markSeen(id) {
+    if (!id || seenIdsRef.current.has(id)) return
+    seenIdsRef.current.add(id)
+    setSeenVersion((v) => v + 1)
+  }
   const reportLiveState = useRef((s) => {
     liveStateRef.current = s
+    // Live engine: learner edits to an artifact pane sync to the server session
+    // (debounced in the driver) so artifact gates track reality.
+    const d = canvasRef.current
+    if (
+      syncArtifactRef.current &&
+      d?.type === 'artifact' &&
+      typeof d.id === 'string' &&
+      d.id.startsWith('artifact:') &&
+      typeof s === 'string'
+    ) {
+      syncArtifactRef.current(d.id.slice('artifact:'.length), s)
+    }
   }).current
 
   // buildContext runs at send-time inside the driver: it snapshots what's on the
   // canvas (+ any marquee selection) for the model, then consumes the selection.
+  // It also reports whether the learner has actually SEEN the current directive —
+  // on a phone the canvas hides behind a tab, and "he's been shown X" objectives
+  // must track reality, not assumption.
   function buildContext() {
     const directive = canvasRef.current
-    const canvasContext = describeCanvas(directive, liveStateRef.current)
+    let canvasContext = describeCanvas(directive, liveStateRef.current)
+    if (directive) {
+      const seen = seenIdsRef.current.has(directive.id)
+      canvasContext = `${seen ? '[VIEWED: the learner has had this on screen]' : '[NOT VIEWED YET: this is on a hidden tab — the learner has NOT had it on screen]'}\n${canvasContext}`
+    }
     const selection = pendingSelectionRef.current
       ? { text: pendingSelectionRef.current.text, note: pendingSelectionRef.current.note }
       : null
@@ -55,18 +82,33 @@ export default function SessionView() {
     return { canvasContext, selection }
   }
 
-  // Hybrid driver: chips advance the scripted tour; free text → real model turn
-  // (with the canvas context from buildContext).
-  const { phase, messages, suggestions, canvas, progress, sending, send } =
-    useScriptedSessionDriver(SHOWCASE_SESSION, { studentSlug, buildContext })
+  // Driver selection: with a student slug, try the REAL lesson engine (server-
+  // authoritative session; Step 4 of the build order). If the student has no
+  // session pack (or there's no slug), the scripted showcase takes over.
+  const live = useSSESessionDriver({
+    studentSlug,
+    day: '1',
+    buildContext,
+    enabled: Boolean(studentSlug),
+  })
+  const scriptedEnabled = !studentSlug || live.phase === 'nopack'
+  const scripted = useScriptedSessionDriver(SHOWCASE_SESSION, {
+    studentSlug,
+    buildContext,
+    enabled: scriptedEnabled,
+  })
+  const isLive = Boolean(studentSlug) && live.phase !== 'nopack'
+  const { phase, messages, suggestions, canvas, progress, sending, send } = isLive
+    ? live
+    : scripted
 
   // Refs so buildContext (captured by the driver) reads the latest values.
   const canvasRef = useRef(null)
   const pendingSelectionRef = useRef(null)
   pendingSelectionRef.current = pendingSelection
+  syncArtifactRef.current = isLive ? live.syncArtifact : null
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia(NARROW_QUERY).matches)
   const [activeTab, setActiveTab] = useState('chat') // narrow only
-  const [canvasDirty, setCanvasDirty] = useState(false)
 
   const [orientationLocked, setOrientationLocked] = useState(
     () => localStorage.getItem(LS.orientationLocked) === '1',
@@ -122,7 +164,6 @@ export default function SessionView() {
       setRatioLocked(false)
       localStorage.removeItem(LS.ratioLocked)
       setActiveTab('chat')
-      setCanvasDirty(false)
       setSelecting(false)
       setPendingSelection(null)
     }
@@ -136,11 +177,22 @@ export default function SessionView() {
     setPendingSelection(null)
   }, [canvasId])
 
-  // Flag unseen canvas updates while on the chat tab (narrow).
+  // Mobile navigation is EXPLICIT, not automatic: we never yank the learner off
+  // the chat mid-read. Instead the chat shows a "Continue to <asset>" button when
+  // new canvas material is up and unseen; the canvas shows "Back to chat". A
+  // directive counts as SEEN when it's actually on screen — wide: whenever the
+  // pane is visible; narrow: only while the Canvas tab is active. That seen-state
+  // feeds buildContext's VIEWED marker so the instructor never treats hidden
+  // material as covered.
   useEffect(() => {
-    if (!canvas) return
-    if (isNarrow && activeTab === 'chat') setCanvasDirty(true)
-  }, [canvas, isNarrow, activeTab])
+    if (!canvasId || !hasCanvas) return
+    if (!isNarrow || activeTab === 'canvas') markSeen(canvasId)
+  }, [canvasId, hasCanvas, isNarrow, activeTab])
+
+  const currentSeen = !canvasId || seenIdsRef.current.has(canvasId)
+  // eslint-disable-next-line no-unused-expressions
+  seenVersion // referenced so the memoized render re-evaluates currentSeen on change
+  const showContinue = isNarrow && hasCanvas && activeTab === 'chat' && !currentSeen
 
   function onSelect(sel) {
     const type = canvasRef.current?.type || 'canvas'
@@ -149,6 +201,7 @@ export default function SessionView() {
       rectPct: sel.rectPct,
       text,
       note: text ? null : `a region of the ${type}`,
+      thumb: sel.thumb || null,
     })
     setSelecting(false)
   }
@@ -174,9 +227,12 @@ export default function SessionView() {
   }
   function showCanvasTab() {
     setActiveTab('canvas')
-    setCanvasDirty(false)
   }
   function restart() {
+    if (isLive) {
+      live.restart() // server-side reset + fresh opener
+      return
+    }
     try {
       localStorage.removeItem(`session:state:${studentSlug || 'session'}`)
     } catch {
@@ -189,27 +245,80 @@ export default function SessionView() {
     sending && messages.length > 0 && messages[messages.length - 1].role === 'assistant'
 
   // Retain the last directive while sliding away so it slides out WITH its content.
+  const shownDirective = canvas || lastDirectiveRef.current
   const canvasPane = (
-    <ContentCanvas
-      directive={canvas || lastDirectiveRef.current}
-      selecting={selecting}
-      onToggleSelect={() => setSelecting((v) => !v)}
-      onSelect={onSelect}
-      onLiveState={reportLiveState}
-      pinnedRect={pendingSelection?.rectPct}
-    />
+    <div className="h-full flex flex-col min-h-0">
+      <div className="flex-1 min-h-0">
+        <ContentCanvas
+          directive={shownDirective}
+          selecting={selecting}
+          onToggleSelect={() => setSelecting((v) => !v)}
+          onSelect={onSelect}
+          onLiveState={reportLiveState}
+          pinnedRect={pendingSelection?.rectPct}
+        />
+      </div>
+      {isNarrow && (
+        // Narrow only: explicit return to chat (the canvas isn't beside the chat).
+        <button
+          type="button"
+          onClick={() => setActiveTab('chat')}
+          className="shrink-0 border-t border-rule bg-white px-4 py-3 text-[13px] font-semibold text-accent active:bg-accent/5"
+        >
+          ← Back to chat
+        </button>
+      )}
+    </div>
   )
 
   const chatPane = (
     <div className="flex flex-col h-full min-h-0 bg-paper">
-      <ProgressHeader
-        label="Coached Session"
-        courseTitle={SHOWCASE_SESSION.title}
-        ticked={progress.ticked}
-        totalRequired={progress.totalRequired}
-        focus={progress.focus}
-      />
-      <ChatMessages messages={messages} streamingLastEmpty={streamingLastEmpty} />
+      {/* Narrow uses the compact top bar instead; this fuller header is desktop-only. */}
+      {!isNarrow && (
+        <ProgressHeader
+          label={isLive ? 'Course Session' : 'Coached Session'}
+          courseTitle={isLive ? `Day 1 — ${live.dayTitle || '…'}` : SHOWCASE_SESSION.title}
+          ticked={progress.ticked}
+          totalRequired={progress.totalRequired}
+          focus={progress.focus}
+        />
+      )}
+      {isLive && phase === 'loading' ? (
+        <div className="flex-1 flex items-center justify-center px-6">
+          <p className="text-sm text-muted animate-pulse">Starting your session…</p>
+        </div>
+      ) : isLive && phase === 'error' ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center">
+          <p className="text-sm text-ink">{live.error}</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-lg border border-rule px-3 py-1.5 text-sm text-muted hover:text-ink"
+          >
+            Reload
+          </button>
+        </div>
+      ) : (
+        <ChatMessages
+          messages={messages}
+          streamingLastEmpty={streamingLastEmpty}
+          trailing={
+            showContinue ? (
+              // Narrow only, INLINE at the end of the latest bubble: the learner
+              // must scroll through the instruction to reach it (can't skip), and
+              // it frees the bottom bar. No auto-shift ever yanks the chat away.
+              <button
+                type="button"
+                onClick={() => setActiveTab('canvas')}
+                className="w-full rounded-xl bg-accent px-4 py-3 text-[13px] font-semibold text-white shadow-card active:scale-[0.99] session-fade flex items-center justify-center gap-2"
+              >
+                <span className="truncate">Continue to {shownDirective?.title || 'the canvas'}</span>
+                <span aria-hidden>→</span>
+              </button>
+            ) : null
+          }
+        />
+      )}
       {phase === 'active' && (
         <ChatInput
           suggestions={suggestions}
@@ -221,57 +330,85 @@ export default function SessionView() {
           onClearAttachment={() => setPendingSelection(null)}
         />
       )}
+      {isLive && phase === 'done' && (
+        <div className="shrink-0 border-t border-rule bg-white px-4 py-3 text-center">
+          <p className="text-sm font-medium text-ink">Session complete — nice work. ✓</p>
+        </div>
+      )}
     </div>
   )
 
   const showNarrowTabs = isNarrow && hasCanvas
+  const headerTitle = isLive ? live.dayTitle || 'Session' : SHOWCASE_SESSION.title
+  const pct = progress.totalRequired ? (progress.ticked / progress.totalRequired) * 100 : 0
 
   return (
-    <div className="h-[100dvh] flex flex-col overflow-x-hidden bg-paper">
-      <div className="shrink-0 border-b border-rule bg-white flex items-center justify-between gap-3 px-4 sm:px-6 py-2.5">
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted truncate">
-            {studentName || 'Coursework'}
-          </span>
-          <button
-            type="button"
-            onClick={restart}
-            title="Clear this session and start over"
-            className="shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-muted hover:text-ink underline underline-offset-2"
-          >
-            ↻ Restart
-          </button>
-        </div>
-        {isNarrow ? (
-          showNarrowTabs && (
-            <div className="inline-flex rounded-lg border border-rule bg-white p-0.5">
+    // Locked to the window (#9): the app frame NEVER scrolls — only inner
+    // containers do (chat list, canvas content, terminal inside its frame).
+    <div className="h-[100dvh] flex flex-col overflow-hidden bg-paper">
+      {isNarrow ? (
+        // Compact, translucent single-row header (Grok-style): title + progress
+        // pill + slim progress line + nav/settings chips. ~46px total (~5-6% of a
+        // phone), vs the ~18% the stacked toolbar + ProgressHeader used to take.
+        <header className="shrink-0 z-30 bg-white/70 backdrop-blur-md border-b border-rule/60">
+          <div className="flex items-center gap-2 px-3 h-11">
+            <div className="min-w-0 flex-1 flex items-center gap-2">
+              <span className="flex-1 min-w-0 truncate text-[13px] font-semibold text-ink">{headerTitle}</span>
+              {progress.totalRequired > 0 && (
+                <span className="shrink-0 rounded-full bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] text-accent">
+                  {progress.ticked}/{progress.totalRequired}
+                </span>
+              )}
+            </div>
+            {showNarrowTabs && (
+              // One context toggle chip (shows the destination pane) instead of a
+              // two-button group — Continue/Back handle the main flow, so this is
+              // just the "jump to the other pane" shortcut. Conservative on width.
               <button
                 type="button"
-                onClick={() => setActiveTab('chat')}
-                className={`rounded-md px-3 py-1 text-[12px] font-medium transition ${
-                  activeTab === 'chat' ? 'bg-accent text-white' : 'text-muted hover:text-ink'
-                }`}
+                onClick={() => setActiveTab(activeTab === 'canvas' ? 'chat' : 'canvas')}
+                className="relative shrink-0 rounded-full border border-rule/70 bg-white/60 px-2.5 py-1 text-[11px] font-medium text-accent active:scale-95"
               >
-                Chat
-              </button>
-              <button
-                type="button"
-                onClick={showCanvasTab}
-                className={`relative rounded-md px-3 py-1 text-[12px] font-medium transition ${
-                  activeTab === 'canvas' ? 'bg-accent text-white' : 'text-muted hover:text-ink'
-                }`}
-              >
-                Canvas
-                {canvasDirty && activeTab !== 'canvas' && (
-                  <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-accent animate-pulse" />
+                {activeTab === 'canvas' ? '‹ Chat' : 'Canvas ›'}
+                {showContinue && activeTab !== 'canvas' && (
+                  <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
                 )}
               </button>
+            )}
+            <button
+              type="button"
+              onClick={restart}
+              title="Start this session over"
+              className="shrink-0 h-7 w-7 grid place-items-center rounded-full border border-rule/70 bg-white/60 text-muted active:scale-95"
+              aria-label="Restart session"
+            >
+              ↻
+            </button>
+          </div>
+          {progress.totalRequired > 0 && (
+            <div className="h-[2px] w-full bg-rule/40">
+              <div className="h-full bg-accent transition-all duration-500" style={{ width: `${pct}%` }} />
             </div>
-          )
-        ) : (
-          hasCanvas && <OrientationToggle orientation={orientation} onChange={changeOrientation} />
-        )}
-      </div>
+          )}
+        </header>
+      ) : (
+        <div className="shrink-0 border-b border-rule bg-white flex items-center justify-between gap-3 px-4 sm:px-6 py-2.5">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted truncate">
+              {studentName || 'Coursework'}
+            </span>
+            <button
+              type="button"
+              onClick={restart}
+              title="Clear this session and start over"
+              className="shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-muted hover:text-ink underline underline-offset-2"
+            >
+              ↻ Restart
+            </button>
+          </div>
+          {hasCanvas && <OrientationToggle orientation={orientation} onChange={changeOrientation} />}
+        </div>
+      )}
 
       <SplitPane
         orientation={orientation}

@@ -1,5 +1,153 @@
 # Status (rolling)
 
+## Phase T.4 — Day-1 dry-run feedback (14 items) (2026-07-05)
+Jonathan's walk-through feedback. Decisions locked: Day1 = Explore→Size→Decide;
+artifacts = collaborative + saved to user files (revises Fable §2); visual engine
+= declarative figure spec. Restart fresh after changes (old session incompatible;
+artifacts are throwaway test data). Engine names: **Director** (primary) + **Usher**
+(secondary/reformer).
+
+Fable-independent (build now):
+- [ ] Usher for the session: port `resolveChips` (model tag → Haiku → deterministic)
+      + `ensureQuestion`/`looksAnswerable` so EVERY turn ends with a clear ask
+      (#6, #11). Wire into start.js + message.js.
+- [ ] Stream the opener (start.js → SSE like message.js) so it doesn't appear
+      all at once (#3). Top-anchor scroll already gives expand-to-bottom-then-overflow.
+- [ ] Lock app to window on desktop: `100dvh`, no page scroll; inner containers
+      scroll only (chat, terminal-in-frame, portrait docs/browser); canvas fits
+      pane (#9).
+- [ ] Pulse/attention cue on multi-page deck [Next] (#5).
+- [ ] Copy button on chat bubbles + code blocks (#13).
+- [x] Acronym/framework intros: spell out on first use + teach before the figure
+      (TAM/SAM/SOM, SWOT, GTM) — masterPrompt method rule + pack text (#2, #10).
+      (Landed in the Day-1 rewrite: Teaching rules block + spelled-out pack text.)
+
+Fable consult first (then build):
+- [x] Collaborative artifacts (#12, #14): Director drafts memo FROM chat work,
+      prepopulates templates for arcs 2/3, learner edits/owns; gate → reviewed+
+      edited (provenance logged); persist to private-bucket mirrors (learner
+      surface at Step 6 per Fable §1.6). Revises grammar contract §2.
+      → `tasks/fable-collab-figures-review.md`. Engine landed earlier in T.4;
+      pack side (sizing `need` lines encode the workflow) landed in the rewrite.
+- [x] Declarative figure engine (#4, #7): data-driven figures (concentric/quadrant
+      v1 + callouts + generic step reveal), progressive build-up via
+      [SHOW: key@step] + persisted figureState, validated targets, SVG render
+      (FigureCanvas). funnel/bars = later kinds, renderer-only once needed.
+
+After Fable — the big content authoring:
+- [x] Day-1 pack rewrite: Explore (interest areas + earning vectors: app, influencer
+      faced/faceless, affiliate/social, digital goods, services) → Size → Decide
+      (#1); real visual figures replacing text decks (#4); collaborative prepop
+      memos (#12,#14). 18 objectives / 16 R; harnesses 137+64; live smoke clean.
+- [ ] Navigable browser examples + ever-present [Return] (#8). DEFERRED: true
+      multi-page nav + [Return] is client BrowserCanvas work; interim shipped in
+      the Day-1 rewrite — richer curated competitor mock with internal anchor nav.
+
+Then: restart clean → re-walk.
+
+---
+
+## Phase T.3 — Session engine + Day-1 runnable as Jonathan's test walk (2026-07-04)
+Decision (Jonathan): make Day 1 walkable by HIM as the test — it's a bottle
+episode (self-contained decision day) that exercises graphs, video, decks,
+browser, readings, and gated artifacts. Scope = Steps 3+4 of the build order,
+LOCAL ONLY (no deploy until Step 6 security gate).
+
+Content (bottle-episode completeness):
+- [ ] Generate `public/session-assets/tam-som-circles.svg` (nested-circles graph)
+      + add `image.tam-circles` and `video.sizing` (placeholder assets) targets
+      to ZACHARY_DAY_1 canvasProgram.
+
+Engine (`functions/_session.js` — instruction-register prompt layer over _turnCore):
+- [ ] System prompt: engine-universal METHOD scaffolding (tick discipline incl.
+      bare-check-tick-rejected rule, artifact = learner-authored + gate, [SHOW:]
+      menu, [TABLE: tangent], [SUGGESTED_REPLIES], pacing from pack.budget,
+      pronouns) + pack.masterPrompt. Distinct from interview register.
+- [ ] Envelope per turn: objective board (evidence shown) + FOCUS + CANVAS NOW +
+      learner live state + artifact gate status + parked notes + rejected-tick
+      feedback + session summary (window memory).
+- [ ] Window memory v1: keep last 16 turns verbatim; when history > 24, fold
+      oldest into running `sessionSummary` via one Haiku call (inline).
+- [ ] tickGuard: check-type needs evidence; artifact-type needs
+      isArtifactSatisfied. extraTableIds=[tangent]. maxNewTicks=3.
+- [ ] [SHOW:] 3-tier: model target (validated) → canvasDefaults[new focus] on
+      focus advance → keep current. Emitted as SSE `canvas` frame.
+- [ ] State: R2 private bucket `lessons/<student>/<course>/day-<id>.json`;
+      turn seq guard (client echoes seq; stale → 409); completion = all R ticked
+      (low floor) OR budget.maxTurns ceiling.
+
+Endpoints (`functions/[studentSlug]/api/session/`):
+- [ ] `start.js` — create/resume (+ `reset:true` for test restarts); returns
+      messages, suggestions, canvas, artifacts, progress, seq.
+- [ ] `message.js` — REPLACE the open demo chat with the engine (also closes the
+      open-LLM-proxy finding at the code level; CF Access still pre-deploy).
+      SSE: delta / canvas / done frames.
+- [ ] `artifact.js` — learner-authored artifact content sync (id + content);
+      server stores; returns gate satisfied state.
+
+Client (Step 4, behind the DriverState seam):
+- [ ] `useSSESessionDriver(studentSlug, day)` in `src/session/useSessionDriver.js`
+      — mirrors InterviewView SSE loop; canvas frames drive ContentCanvas;
+      artifact edits debounce-POST to artifact endpoint; seq tracked.
+- [ ] `SessionView.jsx`: real driver when studentSlug has a session pack, scripted
+      showcase otherwise (bare `/session` demo keeps working); Restart = start
+      with reset:true. Progress header shows ticked/totalRequired + focus.
+
+Verify:
+- [ ] Engine unit tests in scratchpad harness (envelope render, fold trigger,
+      tickGuard paths, 3-tier canvas resolution, seq guard).
+- [ ] Build + headless render of /zachary/session.
+- [ ] Live local walk: start → real Sonnet turn → [SHOW:] canvas change → write
+      artifact → gate opens → tick honored w/ evidence → progress advances.
+- [ ] Interview regression untouched (same shared core).
+- [ ] Update state.md. NOT in scope: deploy, CF Access, learner-record write
+      (Step 5), syllabus doc, days 2+.
+
+---
+
+## Phase T.2 — Fable grammar-review fixes (pre-Day-1 authoring) (2026-07-04)
+Source: `tasks/fable-grammar-review.md` (review #2). Goal: clear the 4 blocking
+items + accepted question-verdicts + the Step-3 trap, extend the harness,
+regression-check the interview, then author Zachary's Day 1 (Step 2b).
+
+Blocking (A–D):
+- [x] A. `validateSessionPack`: flag any `- [`-prefixed line that does NOT match
+      `LINE_RE` (silent line-drop today; em-dash/type typos vanish undetected).
+- [x] B. Strip SHOWCASE_DAY `masterPrompt` to genuinely day-specific persona;
+      engine-universal method text (parking, tick discipline, canvas-driving)
+      belongs in `_session.js` (Step 3), not the authoring template.
+- [x] C. Declare the artifact-provenance contract in `_sessionPacks.js` docs:
+      v1 artifact content is LEARNER-AUTHORED ONLY; model scaffolds via
+      canvasProgram (template as a reading target), never writes into
+      `session.artifacts`. Otherwise minChars is theater.
+- [x] D. Optional per-day `budget: { maxTurns, targetMinutes }` field +
+      validator coverage. SHOWCASE_DAY carries one as the template example.
+
+Accepted question-verdicts:
+- [x] Q8: `exit.reportSchema` optional; export `DEFAULT_REPORT_SCHEMA`
+      (engine default, per-day override only when needed).
+- [x] Q10: reserve `tangent` as a TABLE target (export `TANGENT_TABLE_ID`);
+      `applyTurnEffects` accepts it via opts so lesson tangents aren't
+      silently dropped when not tied to a known objective id.
+
+Step-3 trap (fix now in `_turnCore.js` while fresh):
+- [x] `parseTurn`: support `[TICK: id :: evidence]` — a `::` payload is ONE
+      id + evidence (no comma-split); returns `ticks` (ids, shape unchanged
+      for interview consumers) + new `evidence` map `{id: string}`.
+- [x] `applyTurnEffects`: persist evidence into state; accept
+      `opts.tickGuard(id, evidence) → bool` (session engine rejects
+      evidence-less `check` ticks + unsatisfied artifact ticks; interview
+      passes no guard → unchanged). Accept `opts.extraTableIds` for tangent.
+
+Verify:
+- [x] Extend `session-pack-test.mjs` (malformed-line, budget, evidence parse
+      incl. mixed forms, evidence persisted, tickGuard rejection, tangent,
+      comma-ids still work); `node --check`; `npm run build`.
+- [x] Interview regression: one live turn on :8788; wipe test session.
+- [x] Update `tasks/state.md`; then → author Zachary Day-1 pack (Step 2b).
+
+---
+
 ## Phase S.2 — Interview instrument redesign: objective inventory (2026-07-01)
 Root-cause fix for the drift (model froze in Section 1, mined out of order, never advanced). Replace the 7-section + `[SECTION_COMPLETE]` machine with a **granular objective inventory**.
 

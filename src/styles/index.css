@@ -37,4 +37,57 @@
       transform: translateY(0);
     }
   }
+  /* Narrow-viewport tab shifts: the pane slides in from the side it lives on so
+     the learner tracks the move (canvas from the right, chat from the left). */
+  .session-in-right {
+    animation: sessionInRight 240ms ease-out;
+  }
+  .session-in-left {
+    animation: sessionInLeft 240ms ease-out;
+  }
+  @keyframes sessionInRight {
+    from {
+      opacity: 0.4;
+      transform: translateX(6%);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  @keyframes sessionInLeft {
+    from {
+      opacity: 0.4;
+      transform: translateX(-6%);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  /* Figure canvas staged reveal: elements fade/scale in when their step first
+     becomes visible. Applied per-element by FigureCanvas (SVG groups). */
+  .fig-enter {
+    animation: figEnter 450ms ease both;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  @keyframes figEnter {
+    from {
+      opacity: 0;
+      transform: scale(0.92);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .session-fade,
+    .session-in-right,
+    .session-in-left,
+    .fig-enter {
+      animation: none;
+    }
+  }
 }

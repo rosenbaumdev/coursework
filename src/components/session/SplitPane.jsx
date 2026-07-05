@@ -51,11 +51,19 @@ export default function SplitPane({
   }
 
   // Narrow: one full-width pane at a time (tabs live in the parent toolbar).
+  // Keyed on the active tab so switching re-triggers a directional slide-in —
+  // canvas enters from the right, chat from the left — so the move reads clearly.
   if (isNarrow) {
+    const onCanvas = activeTab === 'canvas' && hasCanvas
     return (
-      <div className="flex-1 min-h-0 min-w-0">
-        <div className="h-full min-h-0 min-w-0 overflow-hidden">
-          {activeTab === 'canvas' && hasCanvas ? canvas : chat}
+      <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+        <div
+          key={onCanvas ? 'canvas' : 'chat'}
+          className={`h-full min-h-0 min-w-0 overflow-hidden ${
+            onCanvas ? 'session-in-right' : 'session-in-left'
+          }`}
+        >
+          {onCanvas ? canvas : chat}
         </div>
       </div>
     )

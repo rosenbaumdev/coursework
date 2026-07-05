@@ -13,11 +13,24 @@ import { MD_COMPONENTS } from '../../markdown/readingMarkdown.jsx'
 export default function ArtifactCanvas({ payload, onLiveState }) {
   const format = payload.format || 'markdown'
   const [content, setContent] = useState(payload.content || '')
-  const [mode, setMode] = useState(format === 'code' ? 'edit' : 'preview')
+  // An empty artifact is something the learner is about to WRITE — open in edit.
+  const [mode, setMode] = useState(
+    format === 'code' || !(payload.content || '').trim() ? 'edit' : 'preview'
+  )
+  // LEARNER WINS: once the learner has typed since the last external push, an
+  // incoming payload.content change must NOT clobber the textarea.
+  const [localDirty, setLocalDirty] = useState(false)
 
-  // Let external (driver) updates to this artifact's content flow in.
+  // Let external (Director/driver) updates flow in — unless the learner is
+  // mid-edit here. A round-trip of our own content clears the dirty flag.
   useEffect(() => {
-    setContent(payload.content || '')
+    const incoming = payload.content || ''
+    if (incoming === content) {
+      setLocalDirty(false)
+      return
+    }
+    if (!localDirty) setContent(incoming)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payload.content])
 
   // Report the (possibly edited) content so the chat can discuss it.
@@ -58,11 +71,19 @@ export default function ArtifactCanvas({ payload, onLiveState }) {
         </div>
       </div>
 
+      {payload.drafting && (
+        <div className="shrink-0 border-b border-accent/20 bg-accent/[0.06] px-4 py-1.5 text-[11px] font-mono text-accent animate-pulse">
+          Instructor is drafting into this document…
+        </div>
+      )}
       <div className="flex-1 min-h-0">
         {mode === 'edit' || !canPreview ? (
           <textarea
             value={content}
-            onChange={(e) => setContent(e.target.value)}
+            onChange={(e) => {
+              setLocalDirty(true)
+              setContent(e.target.value)
+            }}
             spellCheck={false}
             className="w-full h-full resize-none bg-inset text-ink font-mono text-[13px] leading-relaxed p-4 focus:outline-none"
           />

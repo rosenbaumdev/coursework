@@ -30,6 +30,27 @@ export function describeCanvas(directive, liveState) {
       return `A TERMINAL — a simulated bash sandbox the learner can type commands into. ${
         liveState || 'No commands run yet.'
       }`
+    case 'figure': {
+      const spec = p.spec || {}
+      const steps = spec.steps || []
+      const idx = p.step ?? 0
+      const stepName = steps[idx] ?? String(idx)
+      const shown = (el) => el.step === undefined || steps.indexOf(el.step) <= idx
+      let parts = []
+      if (p.kind === 'concentric') {
+        parts = (spec.rings || [])
+          .filter(shown)
+          .map((r) => `${r.label}${r.sublabel ? ` (${r.sublabel})` : ''}${r.value != null ? ` = ${r.value}` : ''}`)
+      } else if (p.kind === 'quadrant') {
+        parts = (spec.quadrants || [])
+          .filter(shown)
+          .map((q) => `${q.label}: ${(q.items || []).filter(shown).map((it) => it.text).join('; ') || '(empty)'}`)
+      }
+      const notes = (spec.callouts || []).filter(shown).map((c) => c.text)
+      return `A FIGURE${title} (${p.kind}), building up in steps — currently at step "${stepName}" (${idx + 1}/${steps.length || 1}). Visible now: ${
+        [...parts, ...notes].join(' · ') || '(base frame only — nothing revealed yet)'
+      }`
+    }
     case 'artifact':
       return `An editable ${p.format || 'markdown'} ARTIFACT${title}. ${
         liveState

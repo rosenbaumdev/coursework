@@ -10,13 +10,41 @@
 
 import {
   newInventoryState,
-  isKnownObjective,
   focusObjective,
   requiredCounts,
   renderInventory,
 } from './_inventory.js'
 
+import {
+  callAnthropic,
+  callAnthropicStream,
+  consumeAnthropicSSE,
+  parseTurn,
+  safeEmitLen,
+  applyTurnEffects,
+  ANTHROPIC_VERSION,
+  readJSON,
+  writeJSON,
+} from './_turnCore.js'
+
+import { ensureAsk } from './_usher.js'
+
 export { getPack, focusObjective, requiredCounts, isComplete, progressInfo } from './_inventory.js'
+
+// Usher re-exports so the interview endpoints keep importing from here unchanged.
+export { resolveChips, looksAnswerable, deriveChips, suggestChips } from './_usher.js'
+
+// Re-export the shared mechanical core so the interview endpoints (and the session
+// prototype) keep importing these names from _interview.js unchanged.
+export {
+  callAnthropic,
+  callAnthropicStream,
+  consumeAnthropicSSE,
+  parseTurn,
+  safeEmitLen,
+  applyTurnEffects,
+  ANTHROPIC_VERSION,
+}
 
 // Interviewer runs on Sonnet 5 with adaptive thinking: the per-turn reasoning
 // pass is what lets it actually work the inventory (decide which box a turn
@@ -25,12 +53,8 @@ export { getPack, focusObjective, requiredCounts, isComplete, progressInfo } fro
 export const INTERVIEW_MODEL = 'claude-sonnet-5'
 export const INTERVIEW_EFFORT = 'medium'
 export const PROFILE_MODEL = 'claude-sonnet-4-6'
-// Cheap second pass: judges whether the just-asked question suits tappable
-// multichoice and, if so, generates the chips. Adaptive (reads the real
-// question, no hardcoded scales). Haiku is plenty for this tiny classification;
-// no thinking/effort params (Haiku 4.5 rejects them).
-export const CHIP_MODEL = 'claude-haiku-4-5'
-export const ANTHROPIC_VERSION = '2023-06-01'
+// The cheap second-pass engine (chips + trailing-off backstop) is the shared
+// USHER — see _usher.js (USHER_MODEL = Haiku 4.5).
 
 // Hard ceiling on user turns per session — bounds runaway API cost on the
 // public (pre-CF-Access) endpoint. A real, unhurried interview runs ~30-45 turns.
@@ -42,7 +66,6 @@ export const MAX_TURNS = 80
 // tick through real follow-up; (2) the turn floor blocks completion before this
 // many user turns even if boxes somehow fill early. Depth is driven mostly by the
 // prompt (2-4 exchanges per objective); these are the backstops.
-export const MAX_NEW_TICKS_PER_TURN = 2
 export const MIN_TURNS_BEFORE_COMPLETE = 20
 
 export function buildEnvelope(session, pack) {
@@ -203,255 +226,19 @@ any questions before you start.
 `.trim()
 }
 
-// Control tags the model may append to a turn. All backend-only; none may reach
-// the student's screen. Order-independent; any can be absent.
-const SUGGESTED_RE = /\[SUGGESTED_REPLIES:([^\]]*)\]/i
-const TICK_RE = /\[TICK:([^\]]*)\]/gi
-const TABLE_RE = /\[TABLE:\s*([^:\]]+?)\s*::\s*([^\]]*)\]/gi
-
-// An "X or Y" question is a closed set by construction, so chips shouldn't depend
-// on the model remembering to emit a tag — the server reads the options straight
-// out of the question it just asked. These guard the two ways an "or" is NOT a menu.
-const OPEN_OPTION_RE = /\b(whatever|something|anything|someone else|somewhere|else|etc|so on|not sure yet)\b/i
-const OPEN_LEADIN_RE =
-  /^(tell me|say more|talk|walk me|describe|explain|what'?s the story|how do you|how does|why do|why does|what do you (think|make|like)|give me|share)/i
-
-// Derive multichoice chips deterministically from a question that offers a closed
-// set inline ("… A, B, or C?"). Returns [] unless the FINAL question is a short,
-// genuine disjunction — a comma-enumerated list, or a bare binary (≤4 words). A
-// mid-sentence "or" wrapped in prose ("is it more about reach or money for you?")
-// and open-ended lead-ins ("tell me about X or Y") are rejected.
-export function deriveChips(text) {
-  const t = (text || '').trim()
-  if (!/\?["'’)\]]*$/.test(t)) return [] // must end on a question
-
-  // Isolate the final question, then the part after the last stem separator
-  // (— : ;) — that's where inline options live ("<concept> — A, B, or C?").
-  const lastQ = t.slice(0, t.lastIndexOf('?') + 1)
-  let clause = lastQ.split(/(?<=[.!?])\s+/).pop() || lastQ
-  const sep = Math.max(clause.lastIndexOf('—'), clause.lastIndexOf(':'), clause.lastIndexOf(';'))
-  if (sep !== -1) clause = clause.slice(sep + 1)
-  clause = clause.trim()
-
-  if (clause.length > 120) return []
-  if (OPEN_LEADIN_RE.test(clause)) return []
-
-  const body = clause.replace(/\?["'’)\]]*$/, '').trim()
-  if (!/\bor\b/i.test(body)) return [] // no disjunction → not a menu
-
-  // Casual tag-question ("<full question>, or nah?" / "…, or not?"): the lead is
-  // the question, the tail a negator — that's a yes/no. Only when the lead is a
-  // real clause (≥3 words), so "ready or not quite?" stays an enumerated binary.
-  const tag = body.match(/^(.*?),?\s+or\s+(no|nah|nope|not|not really|not quite|not sure yet)$/i)
-  if (tag && tag[1].trim().split(/\s+/).length >= 3) return ['Yes', 'No']
-
-  // Guard the padded mid-sentence "or": only fire on an enumerated (comma) list
-  // or a genuinely short binary. "reach or money for you" (8 words, no comma) is out.
-  const hasComma = /,/.test(body)
-  if (!hasComma && body.split(/\s+/).length > 4) return []
-
-  const parts = body
-    .replace(/,?\s+or\s+/gi, ',')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-
-  const clean = []
-  for (let p of parts) {
-    p = p
-      .replace(/^(just|like|maybe|try to|either)\s+/i, '')
-      .replace(/^["'“”]|["'“”]$/g, '')
-      .replace(/[.!?]+$/, '')
-      .trim()
-    if (!p) continue
-    if (OPEN_OPTION_RE.test(p)) continue // escape-hatch option → free box covers it
-    if (p.split(/\s+/).length > 6 || p.length > 32) return []
-    clean.push(p.charAt(0).toUpperCase() + p.slice(1))
-  }
-  return clean.length >= 2 && clean.length <= 4 ? clean : []
-}
-
-export function parseTurn(text) {
-  const ticks = []
-  for (const m of text.matchAll(TICK_RE)) {
-    for (const id of m[1].split(',').map((s) => s.trim()).filter(Boolean)) {
-      if (!ticks.includes(id)) ticks.push(id)
-    }
-  }
-
-  const tables = []
-  for (const m of text.matchAll(TABLE_RE)) {
-    const objectiveId = m[1].trim()
-    const note = m[2].trim()
-    if (objectiveId && note) tables.push({ objectiveId, note })
-  }
-
-  let suggestions = []
-  const sm = text.match(SUGGESTED_RE)
-  if (sm) {
-    suggestions = sm[1].split('|').map((s) => s.trim()).filter(Boolean).slice(0, 4)
-  }
-
-  const cleanText = text
-    .replace(TICK_RE, '')
-    .replace(TABLE_RE, '')
-    .replace(SUGGESTED_RE, '')
-    .trim()
-
-  return { cleanText, ticks, tables, suggestions }
-}
-
-// Cheap adaptive chip generator: Haiku reads the interviewer's just-asked
-// question and returns 2-4 tappable options ONLY when the question genuinely has
-// a small closed answer set — otherwise []. No hardcoded scales; it judges the
-// real question. Defensive JSON parse; any failure → [] (caller falls back).
-export async function suggestChips(env, questionText, studentName) {
-  const q = (questionText || '').trim()
-  if (!q) return []
-
-  const system = `You turn an interviewer's question into tappable multiple-choice chips for a phone chat UI.
-
-RETURN CHIPS whenever the question contains a clear, closed set of natural answers — a yes/no, a permission check, a this-or-that, a short rating/comprehension scale (a "do you know/get X?" → a scale like ["Know it","Kind of","No idea"]), or a small handful of discrete options. This holds EVEN IF the question also asks something open alongside it (e.g. "what kind of stuff, and was it A or B?") — chip the closed part; the student can still type a fuller answer. If the question bundles several parts, chip the clearest closed one (usually the final "X or Y").
-
-RETURN [] only when there is NO closed choice — a purely open prompt whose honest answer is a story, feeling, opinion, or description: "say more", "tell me about…", "what lights you up", "how did that feel", "what are you into". Two open topics joined by "or" ("tell me about the game or the site") is NOT a closed choice → [].
-
-RULES: 2-4 chips; each 1-4 words; compress long phrasing into a short tap ("take apart because it broke and you wanted to fix it" → "Fix what broke"); the student's casual first-person voice; never invent options the question didn't imply. Output ONLY a JSON array of strings — e.g. ["Know it","Kind of","No idea"] or [] — nothing else.`
-
-  const user = `Question asked to ${studentName || 'the student'}:\n"""\n${q}\n"""\n\nChips as a JSON array (or [] if not multichoice-appropriate):`
-
-  let raw
-  try {
-    raw = await callAnthropic(env, {
-      model: CHIP_MODEL,
-      max_tokens: 150,
-      system,
-      messages: [{ role: 'user', content: user }],
-    })
-  } catch {
-    return []
-  }
-
-  // Extract the JSON array defensively (ignore any stray prose/code fences).
-  const a = raw.indexOf('[')
-  const b = raw.lastIndexOf(']')
-  if (a === -1 || b === -1 || b < a) return []
-  let arr
-  try {
-    arr = JSON.parse(raw.slice(a, b + 1))
-  } catch {
-    return []
-  }
-  if (!Array.isArray(arr)) return []
-  const chips = arr
-    .filter((s) => typeof s === 'string')
-    .map((s) => s.trim())
-    .filter((s) => s && s.length <= 32 && s.split(/\s+/).length <= 5)
-    .slice(0, 4)
-  return chips.length >= 2 ? chips : []
-}
-
-// Does the interviewer's turn leave the student something to actually answer?
-// True if it ends on a question (or has one near the end), or the last sentence
-// is an imperative/interrogative ask ("tell me…", "what did…"). Guards against
-// turns that trail off into a bare statement ("…we're just getting a baseline.").
-export function looksAnswerable(text) {
-  const t = (text || '').trim()
-  if (!t) return false
-  if (/\?["'’)\]]*\s*$/.test(t)) return true // ends on a question
-  if (t.slice(-200).includes('?')) return true // a question near the end
-  const last = (t.split(/(?<=[.!?])\s+/).pop() || t).trim()
-  return /^(tell me|walk me|describe|give me|share|say more|pick|choose|name|talk|what|which|how|why|who|when|where|do you|did you|have you|has |are you|is there|would you|could you|can you|got a|any )/i.test(
-    last
-  )
-}
-
-// Backstop: when a turn trails off without asking anything, pick the most GERMANE
-// still-open objective (smooth transition from what was just discussed, not rigid
-// document order) and generate the SINGLE next question that opens it, so the
-// student is never left with a dead end. Same cheap Haiku pass that does chips;
-// '' on any failure or when nothing is left open (caller skips).
+// Chips + trailing-off backstop now live in the shared USHER (_usher.js) — the
+// secondary per-turn engine both the interview and the lesson Director use.
+// ensureQuestion stays here as the interview-persona wrapper around ensureAsk.
 export async function ensureQuestion(env, session, pack, prevText) {
   const open = pack.objectives.filter((o) => !session.inventoryState[o.id]?.ticked)
-  if (!open.length) return '' // everything captured → wrap-up, don't force a question
-  const list = open
-    .map((o) => `- ${o.id} [${o.required ? 'required' : 'bonus'}]: ${o.need}`)
-    .join('\n')
   const lastUser = [...session.history].reverse().find((m) => m.role === 'user')
-  const context = `${lastUser ? `The student just said: "${lastUser.content}"\n\n` : ''}Your message that trailed off (no question):\n"""\n${prevText || ''}\n"""`
-  const system = `You are the interviewer in a warm, casual onboarding interview with a high-schooler. Your last message reached the end of a thread and trailed off WITHOUT asking anything. Below is your TO-DO LIST of interview objectives still open. Pick the ONE open objective that flows most naturally from what was JUST discussed — the most germane, smoothest transition (NOT necessarily the first on the list) — and write the single next question that opens it. One or two sentences, warm, concrete, in your own voice, genuinely answerable. Output ONLY the question text — no preamble, no quotes, no objective id.`
-  const user = `OPEN OBJECTIVES (to-do list):\n${list}\n\n${context}\n\nThe single next question, for whichever open objective is the most germane next step:`
-  let raw
-  try {
-    raw = await callAnthropic(env, {
-      model: CHIP_MODEL,
-      max_tokens: 150,
-      system,
-      messages: [{ role: 'user', content: user }],
-    })
-  } catch {
-    return ''
-  }
-  return (raw || '').trim().replace(/^["'“]+|["'”]+$/g, '').slice(0, 400)
-}
-
-// Resolve the chips for a turn, cheapest-first:
-//   1. the interviewer's own [SUGGESTED_REPLIES] tag (free — already parsed),
-//   2. else an adaptive Haiku pass on the question,
-//   3. else deterministic extraction from an inline "X or Y" question (offline).
-export async function resolveChips(env, { tagSuggestions, cleanText, studentName }) {
-  if (tagSuggestions && tagSuggestions.length) return tagSuggestions
-  const viaHaiku = await suggestChips(env, cleanText, studentName)
-  if (viaHaiku.length) return viaHaiku
-  return deriveChips(cleanText)
-}
-
-// Apply a parsed turn's ticks/tables to the session (server-authoritative).
-// Respects MAX_NEW_TICKS_PER_TURN; only records known objective ids; dedupes
-// parking-lot notes. Returns the number of new ticks recorded.
-export function applyTurnEffects(session, inv, { ticks, tables }, turnNo) {
-  let newTicks = 0
-  for (const id of ticks) {
-    if (newTicks >= MAX_NEW_TICKS_PER_TURN) break
-    if (isKnownObjective(inv, id) && !session.inventoryState[id]?.ticked) {
-      session.inventoryState[id] = { ticked: true, tickedAtTurn: turnNo }
-      newTicks++
-    }
-  }
-  for (const t of tables) {
-    if (!isKnownObjective(inv, t.objectiveId)) continue
-    const dup = session.parkingLot.some(
-      (p) => p.objectiveId === t.objectiveId && p.note === t.note
-    )
-    if (!dup) session.parkingLot.push({ ...t, addedAtTurn: turnNo })
-  }
-  return newTicks
-}
-
-// The two control-tag STARTS we must never let flash on screen mid-stream.
-// (TICK / TABLE both begin "[T" — the guard handles overlapping prefixes.)
-const CONTROL_STARTS = ['[TICK:', '[TABLE:', '[SUGGESTED_REPLIES:']
-
-// Given the full accumulated model text so far, return the length prefix that
-// is SAFE to have emitted — i.e. everything up to the first byte that begins a
-// (possibly partial) control tag. Callers emit accumulated.slice(emitted, cut).
-export function safeEmitLen(acc) {
-  let cut = acc.length
-  for (const tag of CONTROL_STARTS) {
-    const i = acc.indexOf(tag) // a fully-present tag start anywhere
-    if (i !== -1) cut = Math.min(cut, i)
-  }
-  // A partial tag prefix at the very end (e.g. acc ends with "[SUGG").
-  let partial = 0
-  for (const tag of CONTROL_STARTS) {
-    const max = Math.min(tag.length - 1, acc.length)
-    for (let k = max; k > 0; k--) {
-      if (acc.slice(acc.length - k) === tag.slice(0, k)) {
-        partial = Math.max(partial, k)
-        break
-      }
-    }
-  }
-  return Math.min(cut, acc.length - partial)
+  return ensureAsk(env, {
+    persona:
+      'You are the interviewer in a warm, casual onboarding interview with a high-schooler.',
+    openObjectives: open,
+    lastUserText: lastUser?.content,
+    prevText,
+  })
 }
 
 // Generic synthesis wrapper + the course's specific profile schema (from the
@@ -480,99 +267,6 @@ ${transcriptText}
 `.trim()
 }
 
-// Edge-native Anthropic call — plain fetch, no SDK (Functions run on workerd).
-// Returns concatenated text content. Throws on non-2xx with the API's message.
-export async function callAnthropic(env, { model, system, messages, max_tokens, thinking, effort }) {
-  const body = { model, max_tokens, messages }
-  if (system) body.system = system
-  if (thinking) body.thinking = thinking
-  if (effort) body.output_config = { effort }
-
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': env.ANTHROPIC_API_KEY,
-      'anthropic-version': ANTHROPIC_VERSION,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  })
-
-  if (!res.ok) {
-    const detail = await res.text()
-    throw new Error(`Anthropic ${res.status}: ${detail.slice(0, 500)}`)
-  }
-
-  const data = await res.json()
-  return (data.content || [])
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n')
-}
-
-// Streaming variant — returns the raw SSE Response from Anthropic so the caller
-// can pump text deltas to the client while accumulating the full turn. Throws
-// on a non-2xx (before any streaming has started) with the API's message.
-export async function callAnthropicStream(env, { model, system, messages, max_tokens, thinking, effort }) {
-  const body = { model, max_tokens, messages, stream: true }
-  if (system) body.system = system
-  if (thinking) body.thinking = thinking
-  if (effort) body.output_config = { effort }
-
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': env.ANTHROPIC_API_KEY,
-      'anthropic-version': ANTHROPIC_VERSION,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  })
-
-  if (!res.ok) {
-    const detail = await res.text()
-    throw new Error(`Anthropic ${res.status}: ${detail.slice(0, 500)}`)
-  }
-  return res
-}
-
-// Pull text_delta events out of an Anthropic SSE stream, calling onText(delta)
-// for each. Returns the full concatenated text. Handles events split across
-// network chunks by buffering on newline boundaries. (Thinking deltas, if any,
-// are ignored — only assistant text is surfaced.)
-export async function consumeAnthropicSSE(res, onText) {
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buf = ''
-  let full = ''
-
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-
-    let nl
-    while ((nl = buf.indexOf('\n')) !== -1) {
-      const line = buf.slice(0, nl).trim()
-      buf = buf.slice(nl + 1)
-      if (!line.startsWith('data:')) continue
-      const payload = line.slice(5).trim()
-      if (!payload || payload === '[DONE]') continue
-      let evt
-      try {
-        evt = JSON.parse(payload)
-      } catch {
-        continue
-      }
-      if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
-        full += evt.delta.text
-        onText(evt.delta.text, full)
-      }
-    }
-  }
-  return full
-}
-
 // --- INTERVIEW bucket key layout (private; no public Function reads it) ---
 // Keyed by student × course so a student can take a different course later and
 // get a fresh ingestion interview + profile.
@@ -587,18 +281,12 @@ export function transcriptKey(studentSlug, courseSlug) {
 }
 
 export async function loadSession(env, studentSlug, courseSlug) {
-  const obj = await env.INTERVIEW.get(sessionKey(studentSlug, courseSlug))
-  if (!obj) return null
-  return JSON.parse(await obj.text())
+  return readJSON(env.INTERVIEW, sessionKey(studentSlug, courseSlug))
 }
 
 export async function saveSession(env, session) {
   session.updatedAt = new Date().toISOString()
-  await env.INTERVIEW.put(
-    sessionKey(session.studentSlug, session.courseSlug),
-    JSON.stringify(session),
-    { httpMetadata: { contentType: 'application/json' } }
-  )
+  await writeJSON(env.INTERVIEW, sessionKey(session.studentSlug, session.courseSlug), session)
 }
 
 export function newSession(student, course, studentSlug, pack) {

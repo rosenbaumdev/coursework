@@ -1,0 +1,214 @@
+// POST /<studentSlug>/api/session/start   body: { day?: "1", reset?: boolean, stream?: boolean }
+// Creates (or resumes) the lesson session for this student×course×day. Session
+// state lives server-side in the private INTERVIEW bucket (R2) — the client is
+// a renderer, not the owner. `reset:true` wipes the day and starts fresh (test
+// affordance; a legitimate learner start-over is also explicit).
+//
+// A FRESH start with `stream:true` streams the opener as SSE (delta frames with
+// the control-tag guard, then a `done` frame carrying the full start payload) so
+// the first thing the learner sees types out like every other turn. Resume — and
+// fresh without the flag — returns plain JSON.
+
+import { errorResponse, jsonResponse } from '../../../_shared.js'
+import { getStudent, getCourse } from '../../../_students.js'
+import {
+  parseTurn,
+  applyTurnEffects,
+  safeEmitLen,
+  callAnthropic,
+  callAnthropicStream,
+  consumeAnthropicSSE,
+} from '../../../_turnCore.js'
+import {
+  getSessionPack,
+  progressInfo,
+  lessonKey,
+  loadLesson,
+  saveLesson,
+  newLesson,
+  buildSessionSystemPrompt,
+  buildSessionEnvelope,
+  makeTickGuard,
+  applyArtifactWrites,
+  resolveCanvasChange,
+  currentCanvasDirective,
+  resolveChips,
+  looksAnswerable,
+  ensureNextAsk,
+  MAX_NEW_TICKS_PER_TURN,
+  SESSION_MODEL,
+  SESSION_EFFORT,
+} from '../../../_session.js'
+import { TANGENT_TABLE_ID } from '../../../_sessionPacks.js'
+
+const enc = new TextEncoder()
+const frame = (obj) => enc.encode(`data: ${JSON.stringify(obj)}\n\n`)
+
+// Settle the opener: parse tags, apply effects, resolve canvas, Usher backstop +
+// chips, persist. Returns { cleanText, suggestions, payload } for the response.
+async function settleOpener(env, session, pack, rawText, emitDelta) {
+  const parsed = parseTurn(rawText)
+  let cleanText = parsed.cleanText
+
+  // Opener may prepopulate artifacts (e.g. structure carried over from a prior
+  // day). Gate layer (b) guarantees an opener draft can never self-tick.
+  applyArtifactWrites(session, pack, parsed.artifactWrites)
+  session.artifactTruncated = Boolean(parsed.artifactTruncated)
+
+  applyTurnEffects(session, pack, parsed, 0, {
+    maxNewTicks: MAX_NEW_TICKS_PER_TURN,
+    tickGuard: makeTickGuard(pack, session),
+    extraTableIds: [TANGENT_TABLE_ID],
+  })
+  // Opener may [SHOW:] something other than the entry canvas; honor it.
+  resolveCanvasChange(pack, session, parsed.show, null)
+
+  // Usher: the opener must end with something to act on, and gets chips.
+  let usherAsk = ''
+  if (!looksAnswerable(cleanText)) {
+    usherAsk = await ensureNextAsk(env, session, pack, cleanText)
+    if (usherAsk) {
+      cleanText += `\n\n${usherAsk}`
+      if (emitDelta) emitDelta(`\n\n${usherAsk}`)
+    }
+  }
+  const suggestions = await resolveChips(env, {
+    tagSuggestions: parsed.suggestions,
+    cleanText,
+    studentName: session.studentName,
+  })
+
+  session.history.push({ role: 'assistant', content: cleanText })
+  session.lastSuggestions = suggestions
+  session.transcriptLog.push({
+    role: 'assistant',
+    raw: rawText,
+    ticks: parsed.ticks,
+    tables: parsed.tables,
+    show: parsed.show,
+    usherAsk: usherAsk || undefined,
+    ts: new Date().toISOString(),
+  })
+  await saveLesson(env, session)
+
+  return {
+    resumed: false,
+    messages: [{ role: 'assistant', content: cleanText }],
+    suggestions,
+    canvas: currentCanvasDirective(pack, session),
+    artifacts: session.artifacts,
+    sessionDone: false,
+    seq: session.seq,
+    day: session.dayId,
+    dayTitle: pack.title,
+    ...progressInfo(pack, session.inventoryState),
+  }
+}
+
+export async function onRequestPost({ params, env, request }) {
+  const { studentSlug } = params
+  const student = getStudent(studentSlug)
+  const course = getCourse(studentSlug)
+  if (!student || !course) return errorResponse('Unknown student', 404)
+
+  let body = {}
+  try {
+    body = await request.json()
+  } catch {
+    /* empty body is fine */
+  }
+  const dayId = String(body?.day ?? '1')
+  const pack = getSessionPack(course.slug, dayId)
+  if (!pack) return errorResponse('No session configured for this day', 404)
+
+  if (body?.reset) {
+    await env.INTERVIEW.delete(lessonKey(studentSlug, course.slug, dayId))
+  }
+
+  const existing = body?.reset ? null : await loadLesson(env, studentSlug, course.slug, dayId)
+
+  // Resume: rehydrate the client with history, chips, current canvas, progress.
+  if (existing && existing.v === 2) {
+    return jsonResponse({
+      resumed: true,
+      messages: existing.history,
+      suggestions: existing.lastSuggestions || [],
+      canvas: currentCanvasDirective(pack, existing),
+      artifacts: existing.artifacts,
+      sessionDone: Boolean(existing.completed),
+      seq: existing.seq,
+      day: dayId,
+      dayTitle: pack.title,
+      ...progressInfo(pack, existing.inventoryState),
+    })
+  }
+
+  // Fresh start: opener turn. Canvas opens on the pack's entry target.
+  const session = newLesson(student, course, studentSlug, pack)
+  const system = `${buildSessionSystemPrompt(pack, session.studentName)}\n\n${buildSessionEnvelope(session, pack)}`
+  const openerMessages = [
+    {
+      role: 'user',
+      content: `[Session starting now. Entry guidance: ${pack.entry.context}]`,
+    },
+  ]
+  const llmOpts = {
+    model: SESSION_MODEL,
+    max_tokens: 2000,
+    thinking: { type: 'adaptive' },
+    effort: SESSION_EFFORT,
+    system,
+    messages: openerMessages,
+  }
+
+  // Non-streaming path (no `stream` flag — curl tests, simple clients).
+  if (!body?.stream) {
+    let rawText
+    try {
+      rawText = await callAnthropic(env, llmOpts)
+    } catch (err) {
+      return errorResponse(`Failed to start session: ${err.message}`, 502)
+    }
+    const payload = await settleOpener(env, session, pack, rawText, null)
+    return jsonResponse(payload)
+  }
+
+  // Streaming path (#3): the opener types out like any other turn.
+  let upstream
+  try {
+    upstream = await callAnthropicStream(env, llmOpts)
+  } catch (err) {
+    return errorResponse(`Failed to start session: ${err.message}`, 502)
+  }
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        let emitted = 0
+        const full = await consumeAnthropicSSE(upstream, (_delta, acc) => {
+          const cut = safeEmitLen(acc)
+          if (cut > emitted) {
+            controller.enqueue(frame({ type: 'delta', text: acc.slice(emitted, cut) }))
+            emitted = cut
+          }
+        })
+        const payload = await settleOpener(env, session, pack, full, (t) =>
+          controller.enqueue(frame({ type: 'delta', text: t }))
+        )
+        controller.enqueue(frame({ type: 'done', ...payload }))
+      } catch (err) {
+        controller.enqueue(frame({ type: 'error', message: `Failed to start session: ${err.message}` }))
+      } finally {
+        controller.close()
+      }
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+    },
+  })
+}

@@ -7,6 +7,7 @@ import ImageCanvas from './canvas/ImageCanvas.jsx'
 import BrowserCanvas from './canvas/BrowserCanvas.jsx'
 import TerminalCanvas from './canvas/TerminalCanvas.jsx'
 import ArtifactCanvas from './canvas/ArtifactCanvas.jsx'
+import FigureCanvas from './canvas/FigureCanvas.jsx'
 
 const RENDERERS = {
   reading: ReadingCanvas,
@@ -16,6 +17,7 @@ const RENDERERS = {
   browser: BrowserCanvas,
   terminal: TerminalCanvas,
   artifact: ArtifactCanvas,
+  figure: FigureCanvas,
 }
 
 function caretRange(x, y) {
@@ -51,6 +53,39 @@ function extractText(x1, y1, x2, y2) {
   }
 }
 
+// Crop the selected region of an underlying <img>/<video> to a small dataURL so
+// the chat can show a real visual thumbnail of what the learner pointed at. Only
+// media-backed canvases (image, the SVG graph, video) yield a thumb; text/iframe
+// panes return null and fall back to a mini-map + caption. Same-origin assets, so
+// the canvas isn't tainted; any failure degrades to null.
+function captureThumb(container, selScreen) {
+  try {
+    const media = container?.querySelector('img, video')
+    if (!media) return null
+    const mr = media.getBoundingClientRect()
+    const x1 = Math.max(selScreen.left, mr.left)
+    const y1 = Math.max(selScreen.top, mr.top)
+    const x2 = Math.min(selScreen.left + selScreen.width, mr.right)
+    const y2 = Math.min(selScreen.top + selScreen.height, mr.bottom)
+    if (x2 - x1 < 4 || y2 - y1 < 4) return null // selection missed the media
+    const natW = media.naturalWidth || media.videoWidth || mr.width
+    const natH = media.naturalHeight || media.videoHeight || mr.height
+    const sx = ((x1 - mr.left) / mr.width) * natW
+    const sy = ((y1 - mr.top) / mr.height) * natH
+    const sw = ((x2 - x1) / mr.width) * natW
+    const sh = ((y2 - y1) / mr.height) * natH
+    const outW = Math.min(240, sw)
+    const outH = sw ? sh * (outW / sw) : sh
+    const c = document.createElement('canvas')
+    c.width = Math.max(1, Math.round(outW))
+    c.height = Math.max(1, Math.round(outH))
+    c.getContext('2d').drawImage(media, sx, sy, sw, sh, 0, 0, c.width, c.height)
+    return c.toDataURL('image/jpeg', 0.7)
+  } catch {
+    return null
+  }
+}
+
 // The drag-to-select overlay. Hides its own hit-testing at release so caret probing
 // reads the content underneath.
 function Marquee({ onDone }) {
@@ -82,11 +117,18 @@ function Marquee({ onDone }) {
       width: (Math.abs(e.clientX - r.left - s.ox) / r.width) * 100,
       height: (Math.abs(e.clientY - r.top - s.oy) / r.height) * 100,
     }
+    const selScreen = {
+      left: Math.min(s.cx, e.clientX),
+      top: Math.min(s.cy, e.clientY),
+      width: Math.abs(e.clientX - s.cx),
+      height: Math.abs(e.clientY - s.cy),
+    }
+    const thumb = captureThumb(ref.current.parentElement, selScreen)
     ref.current.style.pointerEvents = 'none' // let caret probing hit content beneath
     const text = extractText(s.cx, s.cy, e.clientX, e.clientY)
     startRef.current = null
     setBox(null)
-    onDone({ rectPct, text })
+    onDone({ rectPct, text, thumb })
   }
 
   return (
