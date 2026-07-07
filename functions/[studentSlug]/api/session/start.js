@@ -30,11 +30,14 @@ import {
   buildSessionEnvelope,
   makeTickGuard,
   applyArtifactWrites,
+  applyFigureValues,
+  runStagehand,
   resolveCanvasChange,
   currentCanvasDirective,
   resolveChips,
   looksAnswerable,
   ensureNextAsk,
+  fallbackAsk,
   MAX_NEW_TICKS_PER_TURN,
   SESSION_MODEL,
   SESSION_EFFORT,
@@ -60,17 +63,44 @@ async function settleOpener(env, session, pack, rawText, emitDelta) {
     tickGuard: makeTickGuard(pack, session),
     extraTableIds: [TANGENT_TABLE_ID],
   })
-  // Opener may [SHOW:] something other than the entry canvas; honor it.
-  resolveCanvasChange(pack, session, parsed.show, null)
 
-  // Usher: the opener must end with something to act on, and gets chips.
+  // Runtime [FIG:] value/addition injection (Phase T.5) — BEFORE canvas
+  // resolution, same rule as the per-turn engine.
+  applyFigureValues(session, pack, parsed.figValues)
+
+  // Stagehand (Phase T.4f Tier 3) — an opener could conceivably request one
+  // (e.g. entry.context nudges toward a bespoke recap visual); same rule as
+  // the per-turn engine: success force-shows it, failure leaves a one-shot
+  // note for the FIRST real turn's envelope (there's no "next turn" of the
+  // opener itself to surface it in).
+  if (parsed.stage) {
+    const stageResult = await runStagehand(env, pack, session, parsed.stage)
+    session.transcriptLog.push({
+      role: 'stage',
+      request: parsed.stage,
+      ok: stageResult.ok,
+      key: stageResult.key,
+      reason: stageResult.reason,
+      spec: stageResult.spec,
+      ts: new Date().toISOString(),
+    })
+    if (stageResult.ok) parsed.show = stageResult.key
+    else session.lastStageNote = `Your last [STAGE:] request ("${parsed.stage}") failed: ${stageResult.reason}. Canvas stayed on what it was — try an authored target, an instance (#id), or compare() instead, or rephrase the request.`
+  }
+
+  // Opener may [SHOW:] something other than the entry canvas; honor it.
+  const canvasDirective = resolveCanvasChange(pack, session, parsed.show, null)
+
+  // NEVER-ORPHAN GUARANTEE (#11): the opener must never trail off with
+  // nothing to do, and must never settle on literally EMPTY text. Usher
+  // backstop first; a deterministic fallback (no network call) guarantees
+  // non-empty output even if that Haiku pass also comes back ''.
   let usherAsk = ''
-  if (!looksAnswerable(cleanText)) {
-    usherAsk = await ensureNextAsk(env, session, pack, cleanText)
-    if (usherAsk) {
-      cleanText += `\n\n${usherAsk}`
-      if (emitDelta) emitDelta(`\n\n${usherAsk}`)
-    }
+  if (!cleanText || !looksAnswerable(cleanText)) {
+    usherAsk = (await ensureNextAsk(env, session, pack, cleanText)) || fallbackAsk(pack, session, canvasDirective)
+    const sep = cleanText ? '\n\n' : ''
+    if (emitDelta) emitDelta(`${sep}${usherAsk}`)
+    cleanText = `${cleanText}${sep}${usherAsk}`
   }
   const suggestions = await resolveChips(env, {
     tagSuggestions: parsed.suggestions,

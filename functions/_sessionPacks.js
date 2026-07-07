@@ -71,6 +71,75 @@
 //      `[FIG: <key> :: ringId=value, ...]` — string values rendered verbatim,
 //      merged over the authored spec at resolve time (`value: null` slots in the
 //      ring spec exist for this).
+//
+// ── Deck Author contract (visual deck frames) ─────────────────────────────────
+// Decks exist for what's best shown VISUALLY. The Director's chat carries the
+// prose; each slide carries ONE idea with punch. A deck that restates what the
+// chat says is regurgitory — text alone belongs in the chat, not on a slide.
+// Frame kinds (DeckCanvas.jsx renders them; the validator enforces the budgets):
+//   statement — { kind, kicker?, text (≤90 chars), sub? }. One big-type idea,
+//               centered. Use for openers, closers, and pivots. If the text
+//               needs a second sentence, it's a split, not a statement.
+//   stat      — { kind, value (≤24), label (≤80), note? }. One huge number/value
+//               worth staring at. ONLY real numbers — an invented stat is worse
+//               than no slide.
+//   split     — { kind, heading?, text (≤220)?, visual }. The workhorse: words
+//               beside a visual. visual = { type:'image', src, alt } or
+//               { type:'items', items (≤6): [{ icon?, title (≤40), text? }] }.
+//               Halves stack vertically on narrow panes automatically.
+//   figure    — { kind, figureKind, spec, step? }. A FigureCanvas figure FROZEN
+//               at one build state (step = id or index; omitted = fully built).
+//               Live step-advance belongs to a `figure` canvas target, not a
+//               deck slide. Spec rules identical to figure canvas entries (same
+//               validator). Kinds:
+//                 concentric — nested rings (market-sizing shape)
+//                 quadrant   — 2×2 grid (SWOT shape)
+//                 funnel     — 3-5 tapering bands top→bottom, label+value each
+//                              (+optional sub). The taper IS the message — use
+//                              for magnitude cascades ($30M → $600K → $54K).
+//                 iconrow    — 3-6 circled glyphs + label (+optional sub), the
+//                              "here are the N things" overview row. Glyph
+//                              names come from GLYPHS in FigureCanvas.jsx
+//                              (ICON_GLYPHS below mirrors it).
+//                 bars       — 2-6 horizontal bars: label + value + ratio
+//                              (0–1 relative width, mono value at bar end).
+//               All figure kinds accept an optional spec.title (in-shape
+//               heading) and inherit the staged-reveal layer (spec.steps).
+//   image     — { kind, src, caption? }. Full-slide image.
+//   columns   — { kind, heading?, columns (2-4): [{ title (≤40), icon?,
+//               sections (≤4): [{ label (≤28), text (≤170) }], example? (≤90) }] }.
+//               Parallel explainer cards compared in the SAME dimensions — the
+//               researched "Cremades card row" pattern (per-tier card: labeled
+//               definition rows + a mono worked-example line with real numbers,
+//               e.g. "1.5B users × $30/yr = $45B"). Header tint ramps
+//               automatically (accent opacity by index — echoes the concentric
+//               rings); `example` is the punch line: real math or leave it off.
+//   markdown  — escape hatch for tables/short structured text. The validator
+//               WARNS above ~120 words: that's a text wall — split it into
+//               statement/split/stat frames or move the prose to chat.
+// Authoring rules: LEAD WITH A SHAPE — a deck where most slides are text
+// rectangles is a failed deck; figure frames first, cards support. Every deck
+// opens on or centers around a figure frame; if a beat has no natural shape,
+// question the beat before reaching for another text card. ~5-10 frames per
+// deck; close with a statement; one idea per frame; the word budgets are the
+// validator's floor, not a target — shorter lands harder.
+// `validateSessionPackFull(day)` returns { errors, warnings }; warnings are
+// taste violations, errors are broken slides.
+//
+// Split rows may carry `glyph: <name>` (rendered from the built-in glyph map)
+// instead of a text `icon` — shapes beat mono characters.
+//
+// RESEARCH-FIRST (Jonathan, 2026-07-05): the world is full of excellent visual
+// explainers — never invent a weaker visual from scratch. Before authoring a
+// concept's frames: (1) search the best existing treatments ("<concept>
+// illustrated / infographic"), (2) extract the 2-3 strongest recurring patterns
+// (layout, what makes the example land, how numbers are shown), (3) RECREATE
+// those patterns inside this frame grammar and design system. Never embed
+// third-party branded images. Log source names/URLs + the extracted patterns in
+// a RESEARCH LOG comment near the pack that uses them — the audit trail that
+// research-first authoring happened. Extend the grammar only when a researched
+// pattern truly can't be expressed (at most one new frame kind, with validator
+// rules + renderer).
 
 // ── Example skeleton pack ─────────────────────────────────────────────────────
 // A GENERIC showcase day — NOT real course content. It exercises every construct
@@ -220,6 +289,58 @@ export const DEFAULT_REPORT_SCHEMA = `
 // opts.extraTableIds; the validator forbids objectives claiming it.
 export const TANGENT_TABLE_ID = 'tangent'
 
+// ── RESEARCH LOG — Day-1 visuals (research-first pass, 2026-07-05) ───────────
+// Sources are plain-text names/URLs; patterns are what was extracted and
+// recreated in-grammar below. No third-party images embedded anywhere.
+//
+// (a) TAM/SAM/SOM — sources: Alejandro Cremades "TAM SAM SOM illustrated"
+//     infographic (nested semicircles + 3 color-coded columns: Definition /
+//     How to Estimate / Why It Matters / worked example "1.5B users × $30/yr =
+//     $45B"); slideworks.io/resources/market-sizing-slides-tam-sam-som-examples;
+//     gustdebacker.com/tam-sam-som-market/; salesintel.io "How to Calculate TAM,
+//     SAM, and SOM Accurately" infographic.
+//     Patterns: (1) nested circles for the concept + per-tier color-coded cards
+//     with the SAME labeled sections in each — definition, how-to-estimate,
+//     why-it-matters, worked example; (2) numbers shown as visible bottom-up
+//     multiplication with the assumption next to each factor ("1,352 × $1,000 =
+//     $1.352M" — slideworks), never a bare total; (3) the magnitude CASCADE is
+//     the message (€2B → €100M → €5M — gustdebacker): each tier visibly ~10-50×
+//     smaller, which is what makes the example land.
+//     Recreated as: figure.tamsamsom (nested circles, kept) + deck.tamsamsom
+//     (per-ring slides ANCHORED by the concentric figure frozen at that ring's
+//     step, Cremades teaching card beneath each, and a `funnel` figure carrying
+//     the boba cascade $30M → $600K → $54K — the taper is the message).
+//
+// (b) SWOT — sources: asana.com/resources/swot-analysis;
+//     wordstream.com/blog/ws/2017/12/20/swot-analysis; anychart.com SWOT
+//     quadrant chart gallery; venngage.com/blog/swot-analysis-templates/.
+//     Patterns: (1) 2×2 grid with Internal/External + Helpful/Harmful axis
+//     labels (kept in figure.swot); (2) the strongest templates lead each
+//     quadrant with ONE guiding question, not a blank box; (3) specificity
+//     rule — generic entries that could apply to anyone are the #1 failure
+//     mode; strong examples name the competitor they beat.
+//     Recreated as: figure.swot (grid, kept) + deck.swot (the quadrant grid
+//     figure itself as slide 1, then the guiding-question card row + a
+//     "sounds nice ✗ / actually a strength ✓" comparative example row for
+//     the named-competitor rule).
+//
+// (c) Teen/creator earning vectors — sources: fortune.com 2026-06-09 "22
+//     million teenagers making pocket money" (10% livestream, 16% resell, 10%
+//     Roblox); greenlight.com/learning-center/earning/online-jobs-for-teens;
+//     whop.com/blog/make-money-online-as-a-teen/; theaffiliatemonkey.com
+//     Greenlight affiliate page ($10-$52/signup; user referrals $50/friend).
+//     Patterns: (1) card-per-stream with a concrete named example, not a
+//     category label; (2) real dollar figures as honest RANGES (tutoring
+//     $15-50/hr, Etsy shops $500-2K/mo, referral bounties $10-50); (3) the
+//     honest time-to-first-dollar contrast — services pay this week, content
+//     channels earn ~$0 for months — is what separates credible explainers
+//     from hype.
+//     Recreated as: deck.vectors opening on a six-vector `iconrow` figure
+//     (the field at a glance), split slides each carrying a "First dollar"
+//     row with an honest number or an honest "$0 for months", every row
+//     glyph-led (vector glyph / circle-dollar / clock).
+// ──────────────────────────────────────────────────────────────────────────────
+
 // ── Zachary — Day 1: The Investing Decision ──────────────────────────────────
 // Authored against his interview profile (R2: profiles/zachary/noob-to-ai-
 // entrepreneur-profile.md, 2026-07-02) + Jonathan's dry-run feedback (Phase
@@ -235,6 +356,74 @@ export const TANGENT_TABLE_ID = 'tangent'
 // open-ended; brief-answer register is fine; money + college-impressive are
 // his real win conditions; the translator idea is HIS (ownership matters);
 // pilot hard rule — never introduce arcs not sourced from his own words.
+// Shared figure specs — the live canvas figures AND the deck frames that freeze
+// them at a ring/build step reference the SAME spec object (one source, no
+// drift between the deck anchor and the live build-up).
+const TAMSAMSOM_SPEC = {
+  rings: [
+    { id: 'tam', label: 'TAM', sublabel: 'everyone who could use it', value: null, step: 'tam' },
+    { id: 'sam', label: 'SAM', sublabel: 'the slice you can reach', value: null, step: 'sam' },
+    { id: 'som', label: 'SOM', sublabel: 'year-one winnable', value: null, step: 'som' },
+  ],
+  callouts: [
+    { id: 'c1', ringId: 'tam', text: 'boba example: everyone who buys drinks in your city', step: 'values' },
+    { id: 'c2', ringId: 'sam', text: '~2,000 kids within 10 min of your spot', step: 'values' },
+    { id: 'c3', ringId: 'som', text: '200 pass daily × 1-in-4 stop × $6 average', step: 'values' },
+  ],
+  steps: ['base', 'tam', 'sam', 'som', 'values'],
+}
+
+// His slate (Explore movement, Phase T.5 "dynamic slate"): shared by
+// deck.brief's slide-2 iconrow AND the live `figure.slate` canvas target so
+// the two never drift. Live-injectable: a live [FIG: figure.slate :: add=
+// "Label|sub"] appends an arc he adds/swaps mid-Explore (max 6 total); item
+// `sub`s are also value-injectable if a live detail materializes for one.
+const SLATE_SPEC = {
+  title: 'Your slate — from your interview, in your own words',
+  items: [
+    { id: 'translator', glyph: 'chart', label: 'AI Investing Translator', sub: 'Your idea — "a simplified transy." Stock jargon in, plain language out.' },
+    { id: 'gear', glyph: 'wrench', label: 'AI Gear Comparison', sub: 'Golf/soccer picks by skill level and budget, minus the review noise.' },
+    { id: 'community', glyph: 'people', label: 'Peer Finance Community', sub: 'The translator plus people your age tracking and talking about it.' },
+  ],
+}
+
+const SWOT_SPEC = {
+  rows: ['Inside — yours to control', 'Outside — the world'],
+  cols: ['Helps you', 'Hurts you'],
+  quadrants: [
+    {
+      id: 's', label: 'Strengths', step: 'grid',
+      items: [
+        { id: 's1', text: "You ARE the customer — Investopedia can't fake that", step: 'fill' },
+        { id: 's2', text: 'Direct line to the exact audience: school, team, the friends who ask', step: 'fill' },
+      ],
+    },
+    {
+      id: 'w', label: 'Weaknesses', step: 'grid',
+      items: [
+        { id: 'w1', text: "No track record; hasn't put real money in the market yet", step: 'fill' },
+        { id: 'w2', text: 'TikTok will always be more entertaining', step: 'fill' },
+      ],
+    },
+    {
+      id: 'o', label: 'Opportunities', step: 'grid',
+      items: [
+        { id: 'o1', text: 'Under-18s structurally locked out; nobody serves them at their level', step: 'fill' },
+      ],
+    },
+    {
+      id: 't', label: 'Threats', step: 'grid',
+      items: [
+        { id: 't1', text: 'A broker ships a "teen mode" — what is the answer if they do?', step: 'fill' },
+      ],
+    },
+  ],
+  callouts: [
+    { id: 'rule', quadrantId: 's', text: 'Rule: a strength must beat a NAMED competitor', step: 'fill' },
+  ],
+  steps: ['grid', 'fill'],
+}
+
 const ZACHARY_DAY_1 = {
   day: 1,
   title: 'The Investing Decision',
@@ -263,6 +452,9 @@ Explore rules:
   interview slate stands unchanged and that is a fine outcome.
 - The three sizing memo panes map to his locked slate in order; if he swapped an
   arc during Explore, that slot's memo sizes the swap instead of the original.
+- If he adds or swaps an arc during Explore, put the change on the slate FOR
+  REAL in the same turn: [FIG: figure.slate :: add="Label|one-line sub"] then
+  [SHOW: figure.slate] — the slate is live now, not a static recap.
 
 Teaching rules:
 - Spell out every acronym on first use, and teach the idea in plain words BEFORE
@@ -286,9 +478,17 @@ How to work with him, from his interview:
   application" are the frames that land.
 - The translator idea is HIS. He surfaced it himself. Treat him as the founder
   evaluating his own idea honestly, not a student receiving one.
-- HARD RULE: never introduce a venture direction that isn't from his own slate or
-  his own words in this session. The interview pilot proved fabricated examples
-  break trust with him instantly.
+- HARD RULE (scoped precisely): never PITCH a venture direction as his, or imply
+  he said something he didn't — the interview pilot proved fabricated "his" arcs
+  break trust instantly. But this rule is about OWNERSHIP, not information:
+  bringing in outside data as EXPLORATION FUEL is allowed and encouraged — lists
+  of what people his age are into, market categories, competitor facts, "here
+  are ten common directions, react to them." That IS the research skill this
+  course teaches. Present outside material as a menu he reacts to; ownership
+  comes from HIS pick and HIS stated reason, never from the menu's origin. If he
+  ASKS you to widen the field ("what else is out there?", "look up what teens
+  are into"), do it from your knowledge, clearly framed as outside data — refusing
+  a legitimate research request is rigidity, not discipline.
 - Numbers over vibes. When he estimates, make him write the assumption next to
   the number. Wrong-by-2x is fine; unexamined is not.
 - He said he finishes things when expectations are external, interest is live, or
@@ -328,96 +528,278 @@ How to work with him, from his interview:
 `.trim(),
 
   canvasProgram: {
-    'reading.brief': {
-      type: 'reading',
+    // Visual deck (Deck Author contract, header). The Director's chat carries the
+    // full prose for each beat; these slides carry the punch. Slate items are HIS
+    // interview slate verbatim — never invent arcs (masterPrompt HARD RULE).
+    // SHAPE-LED (Deck Author contract): the slate and the toolkit are ICONROW
+    // figures — the text-card versions were the "rectangular text boxes" fail.
+    'deck.brief': {
+      type: 'deck',
       title: 'Day 1 — The Investing Decision',
       payload: {
-        markdown: `# Day 1 — The Investing Decision
-
-**Today you decide what the next six weeks build.** Three movements: explore, size, decide.
-
-### 1. Explore the field
-
-Your interview put three directions on the table:
-
-1. **AI Investing Translator for Teens** — your idea, your words: "a simplified transy." Stock jargon → plain language + simple odds framing, for people your age who are curious but locked out.
-2. **AI Gear Comparison Tool** — golf/soccer gear picks by skill level and budget, cutting through review noise.
-3. **Peer Finance Community** — the translator plus a place where people your age actually track and talk about this together.
-
-Before locking that list we look at the whole field honestly: your real interests (golf, soccer, the gym, investing, career) crossed with the **six ways people your age actually earn from building something**. Add or swap an arc if something beats the list — or keep it exactly as is. Your call.
-
-### 2. Size the slate
-
-Four sizing tools, like an investor uses — each spelled out and taught before we use it:
-
-| Tool | What it answers |
-|---|---|
-| TAM / SAM / SOM — Total Addressable / Serviceable / Obtainable Market | How big is this, really? |
-| Competitive landscape | Who's already there, and what's the gap? |
-| SWOT — Strengths, Weaknesses, Opportunities, Threats | Where does *your* version win or lose? |
-| GTM — Go-To-Market | How do the first 10 real users show up? |
-
-### 3. Decide
-
-By the end: **three sizing memos, one decision memo, one chosen arc.** Real numbers, written assumptions, a defensible pick — the kind of thing that makes real money AND looks serious on a college application.`,
+        frames: [
+          {
+            kind: 'statement',
+            kicker: 'Day 1 — Decision Day',
+            text: 'Today you decide what the next six weeks build.',
+            sub: 'Three movements: explore the field, size the slate, decide.',
+          },
+          {
+            kind: 'figure',
+            figureKind: 'iconrow',
+            spec: SLATE_SPEC,
+          },
+          {
+            kind: 'figure',
+            figureKind: 'iconrow',
+            spec: {
+              title: 'Movement 2 — the four sizing tools',
+              items: [
+                { id: 'tam', glyph: 'circle-dollar', label: 'TAM / SAM / SOM', sub: 'Total Addressable / Serviceable / Obtainable Market — how big, really?' },
+                { id: 'landscape', glyph: 'people', label: 'Landscape', sub: "Who's already there, and what's the gap?" },
+                { id: 'swot', glyph: 'grid', label: 'SWOT', sub: 'Strengths, Weaknesses, Opportunities, Threats.' },
+                { id: 'gtm', glyph: 'cart', label: 'GTM', sub: 'Go-To-Market: the first 10 users, and why anyone pays.' },
+              ],
+            },
+          },
+          {
+            kind: 'stat',
+            value: '3 → 1',
+            label: 'Three sized arcs go in. One decision comes out.',
+            note: 'By end of day: three sizing memos, one decision memo, one chosen arc.',
+          },
+          {
+            kind: 'statement',
+            kicker: 'The bar',
+            text: 'Real money first. College-impressive second.',
+            sub: 'Your win conditions, your words. Every number you write today serves them.',
+          },
+        ],
       },
     },
-    'reading.vectors': {
-      type: 'reading',
+    // SHAPE-LED: opens on the six-vector ICONROW (the field at a glance); each
+    // per-vector slide keeps the researched card rows but every row carries a
+    // GLYPH — the vector's own shape on the example, circle-dollar on Who pays,
+    // clock on First dollar (time-to-money is the honest contrast).
+    'deck.vectors': {
+      type: 'deck',
       title: 'Six ways people your age actually earn',
       payload: {
-        markdown: `# Six Ways People Your Age Actually Earn From Building
-
-Every venture is an **interest × an earning vector**. You know your interests. Here's the full vector menu — each with a teen-real example and where the money actually comes from.
-
-### 1. App / tool
-Build a thing people use. **Money:** subscription, one-time price, or a parent pays for it.
-*Example:* a study-tool site at $3/month — or your translator idea: investing jargon → plain English.
-
-### 2. Influencer — faced
-You, on camera, building an audience around something you actually do. **Money:** sponsors, ad revenue, affiliate links once the audience is real.
-*Example:* a golf account testing budget clubs on camera — gear brands sponsor exactly this.
-
-### 3. Influencer — faceless
-The channel without your face: edits, voiceover, curation, AI-assisted production. Same money as faced — sponsors, ads, affiliate — without being the face.
-*Example:* a soccer-highlights + gear-breakdown page run entirely behind the scenes.
-
-### 4. Affiliate / social marketing
-Send buyers to someone else's product; take a cut of every sale you cause. **Money:** commission per purchase you drove.
-*Example:* gear pages with affiliate links — or parent-gated brokers (Greenlight, Fidelity Youth) paying for teen sign-ups they can't reach themselves.
-
-### 5. Digital goods
-Make it once, sell it forever: guides, templates, presets. **Money:** price per download, zero marginal cost.
-*Example:* "Your first $100 in the market — legally, under 18": a $9 starter guide.
-
-### 6. Services
-Do the thing for money, now: editing, coaching, setups, tutoring. **Money:** paid per job. Fastest cash of all six — and the only one that never scales past your own hours.
-*Example:* setting up AI study tools for classmates at $20 a setup.
-
----
-
-**The move:** pick any interest, cross it with any vector, and you have an arc. Investing × app = your translator. Golf × faceless influencer = a gear channel you never appear on. Same interest, different vector = a different business.`,
+        frames: [
+          {
+            kind: 'figure',
+            figureKind: 'iconrow',
+            spec: {
+              title: 'Six ways builders your age actually make money',
+              items: [
+                { id: 'app', glyph: 'phone', label: 'App / tool', sub: 'Build a thing people use.' },
+                { id: 'faced', glyph: 'video', label: 'Faced', sub: 'You, on camera.' },
+                { id: 'faceless', glyph: 'mask', label: 'Faceless', sub: 'The channel, minus your face.' },
+                { id: 'affiliate', glyph: 'tag', label: 'Affiliate', sub: 'A cut of sales you cause.' },
+                { id: 'goods', glyph: 'cart', label: 'Digital goods', sub: 'Make once, sell forever.' },
+                { id: 'services', glyph: 'wrench', label: 'Services', sub: 'Do the job, cash now.' },
+              ],
+            },
+          },
+          {
+            kind: 'split',
+            heading: '1 · App / tool',
+            text: 'Build a thing people use. Your translator idea lives here — investing jargon in, plain English out.',
+            visual: {
+              type: 'items',
+              items: [
+                { glyph: 'phone', title: 'Teen-real example', text: 'A study-tool site at $3/month, built and run by a high schooler.' },
+                { glyph: 'circle-dollar', title: 'Who pays', text: 'Subscribers — or a parent pays for it.' },
+                { glyph: 'clock', title: 'First dollar', text: 'Honestly weeks away — one classmate paying $3/month is the real first milestone.' },
+              ],
+            },
+          },
+          {
+            kind: 'split',
+            heading: '2 · Influencer — faced',
+            text: 'You, on camera, building an audience around something you actually do.',
+            visual: {
+              type: 'items',
+              items: [
+                { glyph: 'video', title: 'Teen-real example', text: 'A golf account testing budget clubs on camera — gear brands sponsor exactly this.' },
+                { glyph: 'circle-dollar', title: 'Who pays', text: 'Sponsors, ad revenue, affiliate links — once the audience is real.' },
+                { glyph: 'clock', title: 'First dollar', text: 'Honestly: months of $0. Most channels earn nothing until the audience is real — affiliate links pay before sponsors ever call.' },
+              ],
+            },
+          },
+          {
+            kind: 'split',
+            heading: '3 · Influencer — faceless',
+            text: 'The channel without your face: edits, voiceover, curation, AI-assisted production.',
+            visual: {
+              type: 'items',
+              items: [
+                { glyph: 'mask', title: 'Teen-real example', text: 'A soccer-highlights + gear-breakdown page run entirely behind the scenes.' },
+                { glyph: 'circle-dollar', title: 'Who pays', text: 'Same money as faced — sponsors, ads, affiliate — without being the face.' },
+                { glyph: 'clock', title: 'First dollar', text: 'Same honest $0 stretch as faced — the edge is you can run more than one channel at once.' },
+              ],
+            },
+          },
+          {
+            kind: 'split',
+            heading: '4 · Affiliate / social',
+            text: "Send buyers to someone else's product; take a cut of every sale you cause.",
+            visual: {
+              type: 'items',
+              items: [
+                { glyph: 'tag', title: 'Teen-real example', text: "Parent-gated brokers (Greenlight, Fidelity Youth) pay for teen sign-ups they can't reach themselves." },
+                { glyph: 'circle-dollar', title: 'Who pays', text: 'The company — commission per purchase you drove.' },
+                { glyph: 'clock', title: 'First dollar', text: 'Fast if the audience exists: finance-app referral bounties run $10–$50 per signup. One link, one friend, this week.' },
+              ],
+            },
+          },
+          {
+            kind: 'split',
+            heading: '5 · Digital goods',
+            text: 'Make it once, sell it forever: guides, templates, presets. Zero marginal cost.',
+            visual: {
+              type: 'items',
+              items: [
+                { glyph: 'cart', title: 'Teen-real example', text: '"Your first $100 in the market — legally, under 18": a $9 starter guide.' },
+                { glyph: 'circle-dollar', title: 'Who pays', text: 'Buyers, per download — every copy after the first is pure margin.' },
+                { glyph: 'clock', title: 'First dollar', text: 'A $9 guide can sell on day one. The hard part is buyer #100, not buyer #1.' },
+              ],
+            },
+          },
+          {
+            kind: 'split',
+            heading: '6 · Services',
+            text: 'Do the thing for money, now. Fastest cash of all six — and the only one that never scales past your own hours.',
+            visual: {
+              type: 'items',
+              items: [
+                { glyph: 'wrench', title: 'Teen-real example', text: 'Setting up AI study tools for classmates at $20 a setup.' },
+                { glyph: 'circle-dollar', title: 'Who pays', text: 'The person you did the job for — paid per job, cash now.' },
+                { glyph: 'clock', title: 'First dollar', text: 'This week. $20 for one setup, cash in hand — the fastest first dollar of all six.' },
+              ],
+            },
+          },
+          {
+            kind: 'statement',
+            kicker: 'The move',
+            text: 'Most real businesses stack two or three vectors.',
+            sub: 'Investing × app = your translator. Golf × faceless influencer = a gear channel you never appear on. Same interest, different vector = a different business.',
+          },
+        ],
+      },
+    },
+    // Research-first (see RESEARCH LOG above): Cremades per-tier card pattern —
+    // every ring gets Definition / How to estimate / Why it matters / worked
+    // example WITH NUMBERS, then a 3-column recap row carrying the cascade.
+    // All numbers are the boba example already in figure.tamsamsom's callouts,
+    // extended consistently: $6 average, ~2,000 kids in reach, 200 pass daily.
+    'deck.tamsamsom': {
+      type: 'deck',
+      title: 'TAM / SAM / SOM — the sizing tool',
+      payload: {
+        frames: [
+          {
+            kind: 'statement',
+            kicker: 'Tool 1 — Market sizing',
+            text: 'How big is this — really?',
+            sub: 'TAM / SAM / SOM: Total Addressable, Serviceable, and Obtainable Market. Three circles, one honest answer.',
+          },
+          {
+            kind: 'columns',
+            heading: 'Two ways to size — only one survives questions',
+            columns: [
+              {
+                title: 'Top-down',
+                icon: '↓',
+                sections: [
+                  { label: 'The move', text: 'Start from a giant industry report and claim a sliver: "teen fintech is $2B — if we get just 1%…"' },
+                  { label: 'The problem', text: "Sounds huge, proves nothing. Nobody can check the 1% — it's a wish wearing a number." },
+                ],
+                example: '"$2B × 1% = $20M" — zero checkable assumptions',
+              },
+              {
+                title: 'Bottom-up',
+                icon: '↑',
+                sections: [
+                  { label: 'The move', text: 'Count real people, multiply by a real price, and write the assumption next to every number.' },
+                  { label: 'The test', text: 'Wrong by 2× is normal. Wrong by 100× means one assumption broke — and you can find which one.' },
+                ],
+                example: 'real count × real price = a number you can defend',
+              },
+            ],
+          },
+          // Each ring slide is ANCHORED by the concentric figure frozen at that
+          // ring's build step (shared TAMSAMSOM_SPEC — same shape the live
+          // figure builds later), then its teaching card follows.
+          { kind: 'figure', figureKind: 'concentric', spec: TAMSAMSOM_SPEC, step: 'tam' },
+          {
+            kind: 'split',
+            heading: 'TAM — Total Addressable Market',
+            text: 'Everyone who could ever use the thing, with zero limits on reach. The ceiling, not the plan.',
+            visual: {
+              type: 'items',
+              items: [
+                { icon: '≡', title: 'How to estimate', text: 'Count every possible customer, times what each one is worth per year.' },
+                { icon: '?', title: 'Why it matters', text: 'Tells you if the ceiling is worth standing under — "is this pond big enough."' },
+                { icon: '$', title: 'Boba stand math', text: '~100,000 drink-buyers in your city × ~$300 a year on drinks ≈ a $30M ceiling.' },
+              ],
+            },
+          },
+          { kind: 'figure', figureKind: 'concentric', spec: TAMSAMSOM_SPEC, step: 'sam' },
+          {
+            kind: 'split',
+            heading: 'SAM — Serviceable Available Market',
+            text: 'The slice of TAM you can actually reach — your geography, your age group, your channel. Real limits applied.',
+            visual: {
+              type: 'items',
+              items: [
+                { icon: '≡', title: 'How to estimate', text: 'Apply your real constraints to the TAM count: who can physically get to you — and would.' },
+                { icon: '?', title: 'Why it matters', text: 'This is your actual playing field. If SAM is tiny, no product genius fixes it.' },
+                { icon: '$', title: 'Boba stand math', text: '~2,000 kids within 10 minutes of your spot × ~$300 a year ≈ $600K reachable.' },
+              ],
+            },
+          },
+          { kind: 'figure', figureKind: 'concentric', spec: TAMSAMSOM_SPEC, step: 'som' },
+          {
+            kind: 'split',
+            heading: 'SOM — Serviceable Obtainable Market',
+            text: 'What you can realistically win in year one, against the competition, with the hours you actually have.',
+            visual: {
+              type: 'items',
+              items: [
+                { icon: '≡', title: 'How to estimate', text: 'Count who shows up: foot traffic × stop rate × price. Every factor is a written assumption.' },
+                { icon: '?', title: 'Why it matters', text: "The only number that pays you — the honest year-one revenue guess, and your first target." },
+                { icon: '$', title: 'Boba stand math', text: '200 walk past daily × 1-in-4 stop × $6 = $300 a day — ≈ $54K over a school year.' },
+              ],
+            },
+          },
+          // The cascade recap IS the shape: a funnel — each band visibly ~50×
+          // smaller than the last (the gustdebacker magnitude-cascade pattern).
+          {
+            kind: 'figure',
+            figureKind: 'funnel',
+            spec: {
+              title: 'The boba stand, sized end to end',
+              bands: [
+                { id: 'tam', label: 'TAM', value: '100,000 × $300 ≈ $30M', sub: 'everyone in your city who buys drinks — the ceiling' },
+                { id: 'sam', label: 'SAM', value: '2,000 × $300 ≈ $600K', sub: 'kids close enough to actually come — your reach' },
+                { id: 'som', label: 'SOM', value: '50/day × $6 × 180 ≈ $54K', sub: '200 pass, 1-in-4 stop — the plan' },
+              ],
+            },
+          },
+          {
+            kind: 'statement',
+            kicker: 'The rule',
+            text: 'Every number gets its assumption written next to it.',
+            sub: "Wrong by 2× is normal and fixable. A number with no assumption behind it can't even be wrong.",
+          },
+        ],
       },
     },
     'figure.tamsamsom': {
       type: 'figure',
       title: 'TAM / SAM / SOM — sizing a market',
-      payload: {
-        kind: 'concentric',
-        spec: {
-          rings: [
-            { id: 'tam', label: 'TAM', sublabel: 'everyone who could use it', value: null, step: 'tam' },
-            { id: 'sam', label: 'SAM', sublabel: 'the slice you can reach', value: null, step: 'sam' },
-            { id: 'som', label: 'SOM', sublabel: 'year-one winnable', value: null, step: 'som' },
-          ],
-          callouts: [
-            { id: 'c1', ringId: 'tam', text: 'boba example: everyone who buys drinks in your city', step: 'values' },
-            { id: 'c2', ringId: 'sam', text: '~2,000 kids within 10 min of your spot', step: 'values' },
-            { id: 'c3', ringId: 'som', text: '200 pass daily × 1-in-4 stop × $6 average', step: 'values' },
-          ],
-          steps: ['base', 'tam', 'sam', 'som', 'values'],
-        },
-      },
+      payload: { kind: 'concentric', spec: TAMSAMSOM_SPEC },
     },
     'browser.competitors': {
       type: 'browser',
@@ -465,48 +847,91 @@ p{font-size:13.5px;line-height:1.5}
 </main>`,
       },
     },
+    // Research-first (see RESEARCH LOG above): the strongest SWOT templates
+    // lead each quadrant with ONE guiding question, and the #1 failure mode is
+    // generic entries — so the deck teaches the named-competitor rule with a
+    // concrete weak-vs-strong example row before the grid figure appears.
+    'deck.swot': {
+      type: 'deck',
+      title: 'SWOT — the honest-mirror tool',
+      payload: {
+        frames: [
+          // SHAPE-LED: slide 1 IS the quadrant grid (shared SWOT_SPEC, frozen at
+          // the empty 'grid' step — axes + four labeled boxes, no entries yet).
+          // The filled version stays the live figure.swot's job.
+          { kind: 'figure', figureKind: 'quadrant', spec: SWOT_SPEC, step: 'grid' },
+          {
+            kind: 'columns',
+            heading: 'Four boxes, one guiding question each',
+            columns: [
+              {
+                title: 'Strengths',
+                icon: 'S',
+                sections: [{ label: 'Ask', text: "What do you have that a named competitor can't copy?" }],
+                example: "You ARE the customer — Investopedia can't fake 16",
+              },
+              {
+                title: 'Weaknesses',
+                icon: 'W',
+                sections: [{ label: 'Ask', text: 'Where does a named competitor honestly beat you today?' }],
+                example: 'TikTok will always be more entertaining than you',
+              },
+              {
+                title: 'Opportunities',
+                icon: 'O',
+                sections: [{ label: 'Ask', text: "What's changing out in the world that opens a door you didn't build?" }],
+                example: 'Under-18s are locked out — nobody serves them',
+              },
+              {
+                title: 'Threats',
+                icon: 'T',
+                sections: [{ label: 'Ask', text: 'What outside move could hurt you even if you play perfectly?' }],
+                example: 'A broker ships "teen mode" — what\'s your answer?',
+              },
+            ],
+          },
+          {
+            kind: 'columns',
+            heading: 'The strength test: it must beat a NAMED competitor',
+            columns: [
+              {
+                title: 'Sounds nice ✗',
+                sections: [
+                  { label: 'The entry', text: '"I\'m passionate about investing and good with people."' },
+                  { label: 'Why it fails', text: 'Every founder says it. It names nobody and beats nobody — a vibe, not a strength.' },
+                ],
+              },
+              {
+                title: 'Actually a strength ✓',
+                sections: [
+                  { label: 'The entry', text: '"I\'m 16 and I invest — Investopedia writes for adults and can\'t fake my age."' },
+                  { label: 'Why it works', text: "It names the competitor and states the thing they structurally can't copy." },
+                ],
+              },
+            ],
+          },
+          {
+            kind: 'statement',
+            kicker: 'The bar',
+            text: 'A strength that beats nobody in particular is a hobby.',
+            sub: 'One genuine entry per box, every entry aimed at a named player — then the grid earns its place in your memo.',
+          },
+        ],
+      },
+    },
     'figure.swot': {
       type: 'figure',
       title: 'SWOT — where your version wins or loses',
-      payload: {
-        kind: 'quadrant',
-        spec: {
-          rows: ['Inside — yours to control', 'Outside — the world'],
-          cols: ['Helps you', 'Hurts you'],
-          quadrants: [
-            {
-              id: 's', label: 'Strengths', step: 'grid',
-              items: [
-                { id: 's1', text: "You ARE the customer — Investopedia can't fake that", step: 'fill' },
-                { id: 's2', text: 'Direct line to the exact audience: school, team, the friends who ask', step: 'fill' },
-              ],
-            },
-            {
-              id: 'w', label: 'Weaknesses', step: 'grid',
-              items: [
-                { id: 'w1', text: "No track record; hasn't put real money in the market yet", step: 'fill' },
-                { id: 'w2', text: 'TikTok will always be more entertaining', step: 'fill' },
-              ],
-            },
-            {
-              id: 'o', label: 'Opportunities', step: 'grid',
-              items: [
-                { id: 'o1', text: 'Under-18s structurally locked out; nobody serves them at their level', step: 'fill' },
-              ],
-            },
-            {
-              id: 't', label: 'Threats', step: 'grid',
-              items: [
-                { id: 't1', text: 'A broker ships a "teen mode" — what is the answer if they do?', step: 'fill' },
-              ],
-            },
-          ],
-          callouts: [
-            { id: 'rule', quadrantId: 's', text: 'Rule: a strength must beat a NAMED competitor', step: 'fill' },
-          ],
-          steps: ['grid', 'fill'],
-        },
-      },
+      payload: { kind: 'quadrant', spec: SWOT_SPEC },
+    },
+    // Live, updatable slate (dynamic slate, Phase T.5) — same SLATE_SPEC as
+    // deck.brief's slide 2, but addressable directly with [SHOW: figure.slate]
+    // and updatable in real time with [FIG: figure.slate :: add="Label|sub"]
+    // when he adds or swaps an arc during Explore (masterPrompt rule below).
+    'figure.slate': {
+      type: 'figure',
+      title: 'Your slate',
+      payload: { kind: 'iconrow', spec: SLATE_SPEC },
     },
     'reading.gtm': {
       type: 'reading',
@@ -586,14 +1011,17 @@ The first concrete thing tomorrow's session builds.`,
   },
 
   canvasDefaults: {
-    'open.frame': 'reading.brief',
-    'explore.vectors': 'reading.vectors',
-    'explore.match': 'reading.vectors',
-    'explore.lock': 'reading.brief',
-    'tools.tam.seen': 'figure.tamsamsom',
+    'open.frame': 'deck.brief',
+    'explore.vectors': 'deck.vectors',
+    'explore.match': 'deck.vectors',
+    'explore.lock': 'figure.slate',
+    // Teach-first (masterPrompt rule): the concept deck is the tier-2 default
+    // for the *.seen objective; the model advances to the live figure with
+    // [SHOW: figure.*@step] during the build-up; *.applied defaults to the figure.
+    'tools.tam.seen': 'deck.tamsamsom',
     'tools.tam.applied': 'figure.tamsamsom',
     'tools.landscape.seen': 'browser.competitors',
-    'tools.swot.seen': 'figure.swot',
+    'tools.swot.seen': 'deck.swot',
     'tools.swot.applied': 'figure.swot',
     'tools.gtm.seen': 'reading.gtm',
     'sizing.translator': 'artifact:sizing.translator',
@@ -601,7 +1029,7 @@ The first concrete thing tomorrow's session builds.`,
     'sizing.community': 'artifact:sizing.community',
     'decision.memo': 'artifact:decision.memo',
     'decision.defended': 'artifact:decision.memo',
-    'wrap.recap': 'reading.brief',
+    'wrap.recap': 'deck.brief',
   },
 
   artifacts: {
@@ -632,7 +1060,7 @@ The first concrete thing tomorrow's session builds.`,
   },
 
   entry: {
-    canvas: 'reading.brief',
+    canvas: 'deck.brief',
     context:
       "Greet Zachary by name. Recall that the investing translator was HIS idea from the interview — his words, 'a simplified transy' — and that today has three movements: explore the field (his interests crossed with the ways builders actually earn), size the slate, decide. Frame the stakes his way: which of these can actually make real money and look serious on a college application. Then open on the brief.",
   },
@@ -755,6 +1183,97 @@ export function isArtifactSatisfied(pack, artifacts, id) {
   return typeof content === 'string' && content.trim().length >= (gate.minChars ?? 1)
 }
 
+// Figure element ids a [FIG:] tag may target, by kind — the apply-time
+// validation set (unknown ids are dropped silently) and also surfaced in the
+// system prompt's targets list so the model knows what it can inject onto.
+export function figureElementIds(kind, spec) {
+  if (!spec) return []
+  if (kind === 'concentric') return (spec.rings || []).map((r) => r.id).filter(Boolean)
+  if (kind === 'quadrant') return (spec.quadrants || []).map((q) => q.id).filter(Boolean)
+  if (kind === 'iconrow') return (spec.items || []).map((i) => i.id).filter(Boolean)
+  if (kind === 'funnel') return (spec.bands || []).map((b) => b.id).filter(Boolean)
+  if (kind === 'bars') return (spec.bars || []).map((b) => b.id).filter(Boolean)
+  return []
+}
+
+// Merge runtime [FIG:] values + additions over an authored figure spec at
+// resolve time (never mutates the authored spec — returns a new object).
+// `values` = { [elementId]: string }; `added` = [{ id, label, sub, glyph? }]
+// (iconrow only — the [FIG: key :: add="Label|sub"] mechanism, capped at 6
+// total items). Per-kind slot (Fable review #3 §2.4, promoted + extended):
+//   concentric — ringId sets that ring's `value`
+//   funnel     — bandId sets that band's `value`
+//   bars       — barId sets that bar's `value`
+//   quadrant   — quadrantId APPENDS a new item to that quadrant (a live entry
+//                landing in real time, not an overwrite of an authored one)
+//   iconrow    — itemId sets that item's `sub`; `added` appends new items
+export function mergeFigureValues(kind, spec, values, added) {
+  if (!values && !(added && added.length)) return spec
+  const v = values || {}
+  if (kind === 'concentric') {
+    return { ...spec, rings: (spec.rings || []).map((r) => (r.id && v[r.id] != null ? { ...r, value: v[r.id] } : r)) }
+  }
+  if (kind === 'funnel') {
+    return { ...spec, bands: (spec.bands || []).map((b) => (b.id && v[b.id] != null ? { ...b, value: v[b.id] } : b)) }
+  }
+  if (kind === 'bars') {
+    return { ...spec, bars: (spec.bars || []).map((b) => (b.id && v[b.id] != null ? { ...b, value: v[b.id] } : b)) }
+  }
+  if (kind === 'quadrant') {
+    return {
+      ...spec,
+      quadrants: (spec.quadrants || []).map((q) => {
+        if (!q.id || v[q.id] == null) return q
+        const items = [...(q.items || []), { id: `${q.id}.live.${(q.items || []).length}`, text: v[q.id] }]
+        return { ...q, items }
+      }),
+    }
+  }
+  if (kind === 'iconrow') {
+    let items = (spec.items || []).map((it) => (it.id && v[it.id] != null ? { ...it, sub: v[it.id] } : it))
+    if (added && added.length) {
+      items = [...items, ...added.map((a) => ({ id: a.id, glyph: a.glyph || 'spark', label: a.label, sub: a.sub || '' }))].slice(0, 6)
+    }
+    return { ...spec, items }
+  }
+  return spec
+}
+
+// Element ids that are STILL EMPTY on an (already-merged) figure spec, by kind
+// — the read side of mergeFigureValues' write side, reused so "empty" means
+// exactly what "fillable via [FIG:]" means, per kind, with zero pack-specific
+// knowledge (T.4g, Fix 2):
+//   concentric/funnel/bars — a ring/band/bar whose `value` is still nullish
+//     (the authored `value: null` placeholder hasn't been overridden yet).
+//   quadrant   — a quadrant with no items yet (mergeFigureValues APPENDS a
+//     live item; zero items means nothing has landed on that box at all).
+//   iconrow    — an item with no `sub` yet (mergeFigureValues OVERRIDES an
+//     item's `sub`; an empty/absent sub means that item's detail hasn't
+//     materialized in conversation yet).
+// Called against the MERGED spec (post mergeFigureValues), so an id already
+// filled by a live [FIG:] naturally drops out — the caller doesn't need to
+// separately track "was this just filled".
+export function unfilledFigureElementIds(kind, spec) {
+  if (!spec) return []
+  if (kind === 'concentric') return (spec.rings || []).filter((r) => r.id && (r.value === null || r.value === undefined || r.value === '')).map((r) => r.id)
+  if (kind === 'funnel') return (spec.bands || []).filter((b) => b.id && (b.value === null || b.value === undefined || b.value === '')).map((b) => b.id)
+  if (kind === 'bars') return (spec.bars || []).filter((b) => b.id && (b.value === null || b.value === undefined || b.value === '')).map((b) => b.id)
+  if (kind === 'quadrant') return (spec.quadrants || []).filter((q) => q.id && (!q.items || q.items.length === 0)).map((q) => q.id)
+  if (kind === 'iconrow') return (spec.items || []).filter((i) => i.id && !i.sub).map((i) => i.id)
+  return []
+}
+
+// Instance id charset (Phase T.4f Tier 2 — instantiation): learner/model-chosen,
+// short, filesystem-safe-ish. A malformed id degrades to the BASE figure (never
+// throws, never blanks the canvas) — same "typo can't break the canvas" posture
+// as the unknown-step-id degrade below.
+export const INSTANCE_ID_RE = /^[a-z0-9-]{1,24}$/
+
+// [SHOW: compare(targetA, targetB)] — Tier 2 compare view. Each side is any
+// resolvable target string (key, key#instance, key@step, or key#instance@step).
+// No nested compare() — a compare side is a plain target, not another compare.
+const COMPARE_RE = /^compare\(\s*([^,()]+)\s*,\s*([^,()]+)\s*\)$/
+
 // Resolve a [SHOW: <target>] / canvasDefault target to a CanvasDirective the client
 // renders. Authored targets come from canvasProgram (id injected = key). Dynamic
 // `artifact:<id>` targets read live session.artifacts. Unknown target → null (the
@@ -766,12 +1285,43 @@ export function isArtifactSatisfied(pack, artifacts, id) {
 // `figureState` ({ [baseKey]: stepIndex }) supplies resume semantics: plain
 // `[SHOW: key]` = last-shown step else 0; an UNKNOWN step id keeps the current
 // step (a typo must never blank the canvas). `@` on a non-figure target is
-// stripped and ignored.
-export function resolveShowTarget(pack, target, artifacts, figureState) {
+// stripped and ignored. `figureValues`/`figureAdditions` ({ [baseKey]: ... }) are
+// the live [FIG:] state merged over the authored spec (mergeFigureValues).
+//
+// Instantiation (Phase T.4f Tier 2): `<key>#<instanceId>[@<step>]` — an authored
+// figure used as a TEMPLATE. The instance's directive id is `<key>#<instanceId>`
+// (a distinct canvas identity from the base figure and from every other
+// instance — the client remounts BETWEEN instances, same as any new target, but
+// re-renders IN PLACE within one, exactly like a base figure's step advances).
+// Per-instance state lives in `figureInstances` ({ [`${key}#${id}`]: { step,
+// values } }) — completely independent of the base figure's own figureState/
+// figureValues. A malformed instance id is dropped (degrades to the base figure).
+//
+// Compare (Phase T.4f Tier 2): `compare(a, b)` resolves BOTH sides recursively
+// (through this same function) and returns a `compare` directive whose payload
+// is `{ a: <CanvasDirective>, b: <CanvasDirective> }`. If either side fails to
+// resolve, the whole compare fails (null) — tier-3 keeps whatever was already
+// showing rather than rendering a half-broken compare.
+export function resolveShowTarget(pack, target, artifacts, figureState, figureValues, figureAdditions, figureInstances) {
   if (!target) return null
+
+  const cm = target.match(COMPARE_RE)
+  if (cm) {
+    const a = resolveShowTarget(pack, cm[1].trim(), artifacts, figureState, figureValues, figureAdditions, figureInstances)
+    const b = resolveShowTarget(pack, cm[2].trim(), artifacts, figureState, figureValues, figureAdditions, figureInstances)
+    if (!a || !b) return null
+    return { type: 'compare', id: `compare(${a.id},${b.id})`, title: `${a.title} vs ${b.title}`, payload: { a, b } }
+  }
+
   const at = target.indexOf('@')
-  const base = at === -1 ? target : target.slice(0, at)
+  const beforeStep = at === -1 ? target : target.slice(0, at)
   const stepRef = at === -1 ? null : target.slice(at + 1)
+
+  const hash = beforeStep.indexOf('#')
+  const base = hash === -1 ? beforeStep : beforeStep.slice(0, hash)
+  let instanceId = hash === -1 ? null : beforeStep.slice(hash + 1)
+  if (instanceId && !INSTANCE_ID_RE.test(instanceId)) instanceId = null // malformed → degrade to the base figure
+
   if (base.startsWith('artifact:')) {
     const id = base.slice('artifact:'.length)
     const gate = pack.artifacts?.[id]
@@ -793,11 +1343,15 @@ export function resolveShowTarget(pack, target, artifacts, figureState) {
   if (entry.type !== 'figure') {
     return { type: entry.type, id: base, title: entry.title, payload: entry.payload }
   }
+  const instKey = instanceId ? `${base}#${instanceId}` : base
   const steps = entry.payload?.spec?.steps || []
   const last = Math.max(steps.length - 1, 0)
   // Resume-or-0, then an explicit step part overrides (id preferred; numeric
-  // index accepted + clamped; unknown id → keep current).
-  let step = Math.min(Math.max(figureState?.[base] ?? 0, 0), last)
+  // index accepted + clamped; unknown id → keep current). Instances resume
+  // from their OWN step, never the base figure's.
+  let step = instanceId
+    ? Math.min(Math.max(figureInstances?.[instKey]?.step ?? 0, 0), last)
+    : Math.min(Math.max(figureState?.[base] ?? 0, 0), last)
   if (stepRef !== null) {
     if (/^\d+$/.test(stepRef)) {
       step = Math.min(Math.max(parseInt(stepRef, 10), 0), last)
@@ -806,7 +1360,11 @@ export function resolveShowTarget(pack, target, artifacts, figureState) {
       if (idx !== -1) step = idx
     }
   }
-  return { type: 'figure', id: base, title: entry.title, payload: { ...entry.payload, step } }
+  const values = instanceId ? figureInstances?.[instKey]?.values : figureValues?.[base]
+  const additions = instanceId ? undefined : figureAdditions?.[base] // add= not supported per-instance in v1
+  const mergedSpec = mergeFigureValues(entry.payload?.kind, entry.payload.spec, values, additions)
+  const title = instanceId ? `${entry.title} — ${instanceId}` : entry.title
+  return { type: 'figure', id: instKey, title, payload: { ...entry.payload, spec: mergedSpec, step } }
 }
 
 // Render the objective board as a live markdown checklist for the envelope — shows
@@ -834,14 +1392,31 @@ export function renderObjectiveBoard(pack, state, focusId) {
 
 // Canvas types the client actually renders (src/components/session/canvas/*).
 const CANVAS_TYPES = new Set(['reading', 'deck', 'video', 'image', 'browser', 'terminal', 'artifact', 'figure'])
-// Figure kinds FigureCanvas routes (grows with renderers).
-const FIGURE_KINDS = new Set(['concentric', 'quadrant'])
+// Figure kinds FigureCanvas routes (grows with renderers). Exported: the
+// Stagehand (Phase T.4f Tier 3) validates a runtime-generated spec against the
+// SAME set + rules as authored packs.
+export const FIGURE_KINDS = new Set(['concentric', 'quadrant', 'funnel', 'iconrow', 'bars'])
+// Mirrors GLYPHS in FigureCanvas.jsx — the validator's half of the glyph map.
+// Adding a glyph: draw it there, name it here.
+export const ICON_GLYPHS = new Set([
+  'circle-dollar', 'phone', 'cart', 'people', 'chart', 'clock',
+  'video', 'wrench', 'mask', 'tag', 'spark', 'grid',
+])
 const ID_RE = /^[a-z0-9][a-z0-9.\-]*$/i // no commas (TICK comma-split) or ':' ('::' evidence delimiter)
 
-// Returns a list of human-readable problems ([] = valid). Enforces the invariants
-// the engine relies on so an authoring mistake fails loudly, not mid-session.
+// Legacy shape: returns the ERRORS array only ([] = valid). Delegates to the
+// full validator; callers that care about authoring-taste WARNINGS (e.g. a deck
+// frame that reads as a text wall) use validateSessionPackFull.
 export function validateSessionPack(rawDay, courseSlug = '_validate') {
+  return validateSessionPackFull(rawDay, courseSlug).errors
+}
+
+// Full validation: { errors, warnings }. Errors are broken packs (engine relies
+// on these invariants — fail loudly, not mid-session). Warnings are Deck Author
+// contract violations that still render (fix them anyway).
+export function validateSessionPackFull(rawDay, courseSlug = '_validate') {
   const errors = []
+  const warnings = []
   const p = rawDay
   // Day ids are strings app-wide ("0", "0.1"); a number is accepted for authoring
   // convenience. Anything else (or a non-numeric string) is a mistake.
@@ -897,22 +1472,26 @@ export function validateSessionPack(rawDay, courseSlug = '_validate') {
   for (const [key, entry] of Object.entries(p.canvasProgram || {})) {
     if (key.startsWith('artifact:')) errors.push(`canvasProgram["${key}"]: keys may not start with "artifact:" (shadowed by the dynamic artifact branch)`)
     if (key.includes('@')) errors.push(`canvasProgram["${key}"]: keys may not contain "@" (reserved as the figure-step delimiter)`)
+    if (key.includes('#')) errors.push(`canvasProgram["${key}"]: keys may not contain "#" (reserved as the instance-id delimiter)`)
     if (!CANVAS_TYPES.has(entry?.type)) errors.push(`canvasProgram["${key}"]: unknown canvas type "${entry?.type}"`)
     if (entry?.type === 'figure') validateFigureEntry(key, entry, errors)
+    if (entry?.type === 'deck') validateDeckEntry(key, entry, errors, warnings)
   }
 
   // canvasDefaults must reference real targets and real objectives — BASE keys
-  // only (contract §6: tier-2 resumes a figure's step, never hard-jumps).
+  // only (contract §6: tier-2 resumes a figure's step, never hard-jumps; instances
+  // and compare() are runtime-only, never a tier-2 default).
   for (const [objId, target] of Object.entries(p.canvasDefaults || {})) {
     if (!seen.has(objId)) errors.push(`canvasDefaults["${objId}"]: no such objective`)
-    if (String(target).includes('@')) errors.push(`canvasDefaults["${objId}"]: no "@" step suffix — base keys only (tier-2 resumes the figure's step)`)
-    else if (!targetResolvable(p, target)) errors.push(`canvasDefaults["${objId}"]: unknown target "${target}"`)
+    if (String(target).includes('@') || String(target).includes('#')) {
+      errors.push(`canvasDefaults["${objId}"]: no "@"/"#" suffix — base keys only (tier-2 resumes the figure's step)`)
+    } else if (!targetResolvable(p, target)) errors.push(`canvasDefaults["${objId}"]: unknown target "${target}"`)
   }
 
   // Every day opens on something: entry.canvas is required and must resolve.
   if (!p.entry?.canvas) errors.push('entry.canvas: required (every day opens on a canvas target)')
-  else if (String(p.entry.canvas).includes('@')) {
-    errors.push('entry.canvas: no "@" step suffix — base keys only (figures open at step 0)')
+  else if (String(p.entry.canvas).includes('@') || String(p.entry.canvas).includes('#')) {
+    errors.push('entry.canvas: no "@"/"#" suffix — base keys only (figures open at step 0, on the base figure)')
   } else if (!targetResolvable(p, p.entry.canvas)) {
     errors.push(`entry.canvas: unknown target "${p.entry.canvas}"`)
   }
@@ -924,19 +1503,26 @@ export function validateSessionPack(rawDay, courseSlug = '_validate') {
     else if (o.type !== 'artifact') errors.push(`artifacts["${id}"]: objective "${id}" is type "${o.type}", not artifact`)
   }
 
-  return errors
+  return { errors, warnings }
 }
 
 // Kind-aware figure spec checks (contract §6). The staged-reveal layer is
 // generic: `steps` = ordered unique nonempty strings; every element `step`
 // value must name a declared step; element ids unique within their collection.
+// Called for figure CANVAS entries and reused for figure DECK FRAMES.
 function validateFigureEntry(key, entry, errors) {
   const err = (msg) => errors.push(`canvasProgram["${key}"]: ${msg}`)
   const kind = entry.payload?.kind
   if (!FIGURE_KINDS.has(kind)) { err(`unknown figure kind "${kind}"`); return }
   const spec = entry.payload?.spec
   if (!spec) { err('figure payload.spec required'); return }
+  validateFigureSpec(kind, spec, err)
+}
 
+// Exported: the Stagehand (Phase T.4f Tier 3) validates a runtime-generated
+// figure spec through this SAME function — one set of shape rules, authored or
+// generated. `err` is a plain `(msg) => void` collector (callers own the array).
+export function validateFigureSpec(kind, spec, err) {
   let stepSet = new Set()
   if (spec.steps !== undefined) {
     if (!Array.isArray(spec.steps) || spec.steps.length === 0 || spec.steps.some((s) => typeof s !== 'string' || !s.trim())) {
@@ -973,6 +1559,134 @@ function validateFigureEntry(key, entry, errors) {
       if (!qIds.has(c?.quadrantId)) err(`callout "${c?.id}" quadrantId "${c?.quadrantId}" is not a declared quadrant`)
     }
   }
+  if (kind === 'funnel') {
+    if (!Array.isArray(spec.bands) || spec.bands.length < 3 || spec.bands.length > 5) {
+      err('funnel spec.bands must be an array of 3-5 bands (order TOP → BOTTOM)')
+    }
+    checkEls(spec.bands, 'band')
+    for (const b of spec.bands || []) {
+      if (!b?.label) err(`band "${b?.id}" needs a label`)
+      if (b?.value == null || b.value === '') err(`band "${b?.id}" needs a value (the magnitude cascade IS the message)`)
+    }
+  }
+  if (kind === 'iconrow') {
+    if (!Array.isArray(spec.items) || spec.items.length < 3 || spec.items.length > 6) {
+      err('iconrow spec.items must be an array of 3-6 items')
+    }
+    checkEls(spec.items, 'item')
+    for (const it of spec.items || []) {
+      if (!it?.label) err(`item "${it?.id}" needs a label`)
+      if (!ICON_GLYPHS.has(it?.glyph)) err(`item "${it?.id}" glyph "${it?.glyph}" is not a built-in glyph`)
+    }
+  }
+  if (kind === 'bars') {
+    if (!Array.isArray(spec.bars) || spec.bars.length < 2 || spec.bars.length > 6) {
+      err('bars spec.bars must be an array of 2-6 bars')
+    }
+    checkEls(spec.bars, 'bar')
+    for (const b of spec.bars || []) {
+      if (!b?.label) err(`bar "${b?.id}" needs a label`)
+      if (b?.value == null || b.value === '') err(`bar "${b?.id}" needs a value (mono, at the bar's end)`)
+      if (!(typeof b?.ratio === 'number' && b.ratio > 0 && b.ratio <= 1)) {
+        err(`bar "${b?.id}" ratio must be a number in (0, 1] (relative width of the widest bar)`)
+      }
+    }
+  }
+}
+
+// Deck frame checks (Deck Author contract, header). Word/char budgets are the
+// enforcement half of "slides carry the punch"; the >120-word markdown wall is a
+// WARNING because it still renders — it's just a bad slide.
+const DECK_FRAME_KINDS = new Set(['markdown', 'image', 'statement', 'stat', 'split', 'figure', 'columns'])
+const MD_WALL_WORDS = 120
+
+// Exported: the Stagehand (Phase T.4f Tier 3) validates a runtime-generated deck
+// (frames array) through this SAME function, wrapping it in a throwaway entry
+// shape ({ type: 'deck', payload: { frames } }) — one set of budgets/shape
+// rules, authored or generated.
+export function validateDeckEntry(key, entry, errors, warnings) {
+  const frames = entry.payload?.frames
+  if (!Array.isArray(frames) || frames.length === 0) {
+    errors.push(`canvasProgram["${key}"]: deck payload.frames must be a nonempty array`)
+    return
+  }
+  frames.forEach((f, i) => {
+    const err = (msg) => errors.push(`canvasProgram["${key}"] frame ${i + 1}: ${msg}`)
+    if (!DECK_FRAME_KINDS.has(f?.kind)) { err(`unknown frame kind "${f?.kind}"`); return }
+    switch (f.kind) {
+      case 'markdown': {
+        const words = String(f.markdown || '').trim().split(/\s+/).filter(Boolean).length
+        if (!words) err('markdown frame needs markdown')
+        else if (words > MD_WALL_WORDS) {
+          warnings.push(
+            `canvasProgram["${key}"] frame ${i + 1}: ${words} words — deck frame reads as a text wall; split into statement/split/stat frames or move the prose to chat`
+          )
+        }
+        break
+      }
+      case 'image':
+        if (!f.src) err('image frame needs src')
+        break
+      case 'statement':
+        if (!f.text) err('statement frame needs text')
+        else if (f.text.length > 90) err(`statement text is ${f.text.length} chars — max 90 (one big-type idea)`)
+        break
+      case 'stat':
+        if (!f.value) err('stat frame needs value')
+        else if (String(f.value).length > 24) err(`stat value is ${String(f.value).length} chars — max 24`)
+        if (!f.label) err('stat frame needs label')
+        else if (f.label.length > 80) err(`stat label is ${f.label.length} chars — max 80`)
+        break
+      case 'split': {
+        const v = f.visual
+        if (!v || (v.type !== 'image' && v.type !== 'items')) err('split frame needs visual of type "image" or "items"')
+        else if (v.type === 'image' && !v.src) err('split image visual needs src')
+        else if (v.type === 'items') {
+          const items = Array.isArray(v.items) ? v.items : []
+          if (items.length === 0) err('split items visual needs at least one item')
+          if (items.length > 6) err(`split has ${items.length} items — max 6`)
+          items.forEach((it, j) => {
+            if (!it?.title) err(`split item ${j + 1} needs a title`)
+            else if (it.title.length > 40) err(`split item ${j + 1} title is ${it.title.length} chars — max 40`)
+            if (it?.glyph !== undefined && !ICON_GLYPHS.has(it.glyph)) err(`split item ${j + 1} glyph "${it.glyph}" is not a built-in glyph`)
+          })
+        }
+        if (f.text && f.text.length > 220) err(`split text is ${f.text.length} chars — max 220 (move the prose to chat)`)
+        break
+      }
+      case 'columns': {
+        const cols = Array.isArray(f.columns) ? f.columns : []
+        if (cols.length < 2 || cols.length > 4) err(`columns frame needs 2-4 columns (got ${cols.length})`)
+        if (f.heading && f.heading.length > 80) err(`columns heading is ${f.heading.length} chars — max 80`)
+        cols.forEach((c, j) => {
+          if (!c?.title) err(`column ${j + 1} needs a title`)
+          else if (c.title.length > 40) err(`column ${j + 1} title is ${c.title.length} chars — max 40`)
+          const secs = Array.isArray(c?.sections) ? c.sections : []
+          if (secs.length === 0 && !c?.example) err(`column ${j + 1} needs sections or an example line`)
+          if (secs.length > 4) err(`column ${j + 1} has ${secs.length} sections — max 4`)
+          secs.forEach((s, k) => {
+            if (!s?.label) err(`column ${j + 1} section ${k + 1} needs a label`)
+            else if (s.label.length > 28) err(`column ${j + 1} section ${k + 1} label is ${s.label.length} chars — max 28`)
+            if (!s?.text) err(`column ${j + 1} section ${k + 1} needs text`)
+            else if (s.text.length > 170) err(`column ${j + 1} section ${k + 1} text is ${s.text.length} chars — max 170 (move the prose to chat)`)
+          })
+          if (c?.example && c.example.length > 90) err(`column ${j + 1} example is ${c.example.length} chars — max 90 (one worked line)`)
+        })
+        break
+      }
+      case 'figure': {
+        if (!FIGURE_KINDS.has(f.figureKind)) { err(`unknown figure kind "${f.figureKind}"`); break }
+        if (!f.spec) { err('figure frame needs spec'); break }
+        validateFigureSpec(f.figureKind, f.spec, err)
+        if (typeof f.step === 'string' && !(Array.isArray(f.spec.steps) && f.spec.steps.includes(f.step))) {
+          err(`figure frame step "${f.step}" not in spec.steps`)
+        } else if (typeof f.step === 'number' && !(Number.isInteger(f.step) && f.step >= 0)) {
+          err('figure frame numeric step must be a non-negative integer')
+        }
+        break
+      }
+    }
+  })
 }
 
 // A target is resolvable if it's a canvasProgram key or an artifact:<declared-id>.

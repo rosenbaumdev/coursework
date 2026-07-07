@@ -82,11 +82,72 @@
       transform: scale(1);
     }
   }
+  /* Directional step/page navigation (deck pages, figure step nav): advancing
+     enters from the right, retreating from the left — a deliberate wayfinding
+     cue distinct from .session-in-* (which is for tab shifts, not in-pane
+     navigation). Applied to a key-remounted wrapper so it retriggers on every
+     page/step change (same remount-to-reanimate trick as .session-fade). */
+  .step-enter-advance {
+    animation: stepEnterAdvance 260ms ease-out;
+  }
+  .step-enter-retreat {
+    animation: stepEnterRetreat 260ms ease-out;
+  }
+  @keyframes stepEnterAdvance {
+    from {
+      opacity: 0;
+      transform: translateX(5%);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  @keyframes stepEnterRetreat {
+    from {
+      opacity: 0;
+      transform: translateX(-5%);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  /* Value-arrival pop: a real number landing on a figure (a live [FIG:] value)
+     needs to visibly ANNOUNCE itself — scale down from a slight overshoot with
+     a brief accent glow, distinct from the plainer .fig-enter reveal-pop used
+     for whole elements appearing at a new step. Retriggered by remounting the
+     value's wrapper (keyed on `${id}:${value}` — see ValueGroup in
+     FigureCanvas.jsx), so it fires exactly once per genuine value change. */
+  .value-pop {
+    animation: valuePop 350ms ease both;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  @keyframes valuePop {
+    0% {
+      opacity: 0;
+      transform: scale(1.15);
+      filter: drop-shadow(0 0 6px rgba(26, 58, 92, 0.6));
+    }
+    60% {
+      opacity: 1;
+      transform: scale(1.03);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+      filter: drop-shadow(0 0 0 rgba(26, 58, 92, 0));
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
     .session-fade,
     .session-in-right,
     .session-in-left,
-    .fig-enter {
+    .fig-enter,
+    .step-enter-advance,
+    .step-enter-retreat,
+    .value-pop {
       animation: none;
     }
   }

@@ -222,6 +222,17 @@ export function useSSESessionDriver(opts = {}) {
   const [messages, setMessages] = useState([])
   const [suggestions, setSuggestions] = useState([])
   const [canvas, setCanvas] = useState(null)
+  // T.4e pending-swap: a canvas frame whose base id differs from what's
+  // DISPLAYED (`canvas`) queues here instead of yanking the visible pane —
+  // SessionView surfaces it as a "Continue to <title> →" affordance (an
+  // overlay pill on wide viewports, the existing narrow chat Continue button
+  // on narrow ones) and calls acceptPendingCanvas() to swap it in. A frame
+  // whose id MATCHES what's displayed (a figure step/value update) applies
+  // immediately in place — see applyCanvasFrame.
+  const [pendingCanvas, setPendingCanvas] = useState(null)
+  // Last HISTORY_CAP distinct displayed directives (by id), oldest first —
+  // lets SessionView offer a "‹ History" list back to earlier material.
+  const [history, setHistory] = useState([])
   const [progress, setProgress] = useState({ ticked: 0, totalRequired: 0, focus: '' })
   const [sending, setSending] = useState(false)
   const [dayTitle, setDayTitle] = useState('')
@@ -235,6 +246,40 @@ export function useSSESessionDriver(opts = {}) {
   const artifactPendingRef = useRef({})
   const artifactTimersRef = useRef({})
 
+  const HISTORY_CAP = 20
+  function pushHistory(directive) {
+    if (!directive) return
+    setHistory((h) => [...h.filter((d) => d.id !== directive.id), directive].slice(-HISTORY_CAP))
+  }
+
+  // Apply an incoming canvas directive from the server. Same base id as what's
+  // currently displayed (a figure step/value update, or the very first frame
+  // of the session) → applies immediately in place. A genuinely different
+  // target → queues as pendingCanvas (replacing any earlier still-unseen
+  // pending frame with the newer one) instead of disturbing the displayed pane.
+  function applyCanvasFrame(directive) {
+    setCanvas((cur) => {
+      if (!cur || cur.id === directive.id) {
+        pushHistory(directive)
+        setPendingCanvas((p) => (p && p.id === directive.id ? null : p))
+        return directive
+      }
+      setPendingCanvas(directive)
+      return cur
+    })
+  }
+
+  // The "Continue to <title> →" tap: swap the queued frame into view now.
+  function acceptPendingCanvas() {
+    setPendingCanvas((p) => {
+      if (p) {
+        setCanvas(p)
+        pushHistory(p)
+      }
+      return null
+    })
+  }
+
   function api(path, body) {
     return fetch(`/${studentSlug}/api/session/${path}`, {
       method: 'POST',
@@ -247,7 +292,8 @@ export function useSSESessionDriver(opts = {}) {
     seqRef.current = data.seq ?? 0
     setMessages(data.messages || [])
     setSuggestions(data.suggestions || [])
-    setCanvas(data.canvas || null)
+    if (data.canvas) applyCanvasFrame(data.canvas)
+    else setCanvas(null)
     setDayTitle(data.dayTitle || '')
     setProgress({
       ticked: data.ticked || 0,
@@ -305,7 +351,7 @@ export function useSSESessionDriver(opts = {}) {
             continue
           }
           if (evt.type === 'delta') appendToLast(evt.text)
-          else if (evt.type === 'canvas') setCanvas(evt.directive)
+          else if (evt.type === 'canvas') applyCanvasFrame(evt.directive)
           else if (evt.type === 'done') applyStartPayload(evt)
           else if (evt.type === 'error') {
             setError(evt.message)
@@ -432,23 +478,25 @@ export function useSSESessionDriver(opts = {}) {
             continue
           }
           if (evt.type === 'delta') appendToLast(evt.text)
-          else if (evt.type === 'canvas') setCanvas(evt.directive)
+          else if (evt.type === 'canvas') applyCanvasFrame(evt.directive)
           else if (evt.type === 'artifactPending') {
-            // Director is drafting into this artifact — show it, if mounted.
-            setCanvas((c) =>
-              c && c.id === `artifact:${evt.id}`
-                ? { ...c, payload: { ...c.payload, drafting: true } }
-                : c
-            )
+            // Director is drafting into this artifact — show it, if mounted
+            // (displayed OR still queued as a pending swap).
+            const patch = (c) =>
+              c && c.id === `artifact:${evt.id}` ? { ...c, payload: { ...c.payload, drafting: true } } : c
+            setCanvas(patch)
+            setPendingCanvas(patch)
           } else if (evt.type === 'artifact') {
             // Director wrote content. LEARNER WINS: if the pane has unsynced
             // local edits, keep them (server adopts the learner's version at the
             // next flush; the draft survives in the transcript for review).
-            setCanvas((c) => {
+            const patch = (c) => {
               if (!c || c.id !== `artifact:${evt.id}`) return c
               if (isArtifactDirty(evt.id)) return { ...c, payload: { ...c.payload, drafting: false } }
               return { ...c, payload: { ...c.payload, content: evt.content, drafting: false } }
-            })
+            }
+            setCanvas(patch)
+            setPendingCanvas(patch)
           } else if (evt.type === 'done') {
             setLastContent(evt.message) // authoritative clean text
             setSuggestions(evt.suggestions || [])
@@ -477,6 +525,8 @@ export function useSSESessionDriver(opts = {}) {
     setMessages([])
     setSuggestions([])
     setCanvas(null)
+    setPendingCanvas(null)
+    setHistory([])
     bootstrap(true)
   }
 
@@ -485,6 +535,9 @@ export function useSSESessionDriver(opts = {}) {
     messages,
     suggestions,
     canvas,
+    pendingCanvas,
+    history,
+    acceptPendingCanvas,
     progress,
     sending,
     send,

@@ -8,6 +8,7 @@ import BrowserCanvas from './canvas/BrowserCanvas.jsx'
 import TerminalCanvas from './canvas/TerminalCanvas.jsx'
 import ArtifactCanvas from './canvas/ArtifactCanvas.jsx'
 import FigureCanvas from './canvas/FigureCanvas.jsx'
+import CompareCanvas from './canvas/CompareCanvas.jsx'
 
 const RENDERERS = {
   reading: ReadingCanvas,
@@ -18,6 +19,7 @@ const RENDERERS = {
   terminal: TerminalCanvas,
   artifact: ArtifactCanvas,
   figure: FigureCanvas,
+  compare: CompareCanvas,
 }
 
 function caretRange(x, y) {

@@ -38,6 +38,9 @@ export default function SessionView() {
   const [draft, setDraft] = useState('')
   const [selecting, setSelecting] = useState(false)
   const [pendingSelection, setPendingSelection] = useState(null)
+  // T.4e: browsing an older directive from history (null = viewing current/live).
+  const [historyViewId, setHistoryViewId] = useState(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const liveStateRef = useRef(null)
   const syncArtifactRef = useRef(null)
   const seenIdsRef = useRef(new Set()) // directive ids the learner actually had on screen
@@ -101,6 +104,12 @@ export default function SessionView() {
   const { phase, messages, suggestions, canvas, progress, sending, send } = isLive
     ? live
     : scripted
+  // T.4e pending-swap + history — live driver only (the scripted showcase's
+  // canvas changes are user-chip-triggered, not asynchronous server pushes, so
+  // there's nothing to queue-and-confirm).
+  const pendingCanvas = isLive ? live.pendingCanvas : null
+  const canvasHistory = isLive ? live.history : []
+  const acceptPendingCanvas = isLive ? live.acceptPendingCanvas : () => {}
 
   // Refs so buildContext (captured by the driver) reads the latest values.
   const canvasRef = useRef(null)
@@ -128,7 +137,14 @@ export default function SessionView() {
   const prevHasCanvasRef = useRef(false)
   const lastDirectiveRef = useRef(null)
   if (canvas) lastDirectiveRef.current = canvas
-  canvasRef.current = canvas || lastDirectiveRef.current
+  const liveDirective = canvas || lastDirectiveRef.current
+  // Back-viewing an entry from history overrides what's rendered/described —
+  // canvasRef (what buildContext + describeCanvas see) must always match what's
+  // ACTUALLY on screen, per the same "seen vs shown" discipline as everything
+  // else here.
+  const historyEntry = historyViewId ? canvasHistory.find((d) => d.id === historyViewId) || null : null
+  const shownDirective = historyEntry || liveDirective
+  canvasRef.current = shownDirective
   const orientationLockedRef = useRef(orientationLocked)
   orientationLockedRef.current = orientationLocked
   const ratioLockedRef = useRef(ratioLocked)
@@ -169,8 +185,9 @@ export default function SessionView() {
     }
   }, [canvas])
 
-  // Reset reported live state + any selection when the shown directive changes.
-  const canvasId = canvas?.id
+  // Reset reported live state + any selection when the shown directive changes
+  // (live update OR switching what history entry is being browsed).
+  const canvasId = shownDirective?.id
   useEffect(() => {
     liveStateRef.current = null
     setSelecting(false)
@@ -192,7 +209,36 @@ export default function SessionView() {
   const currentSeen = !canvasId || seenIdsRef.current.has(canvasId)
   // eslint-disable-next-line no-unused-expressions
   seenVersion // referenced so the memoized render re-evaluates currentSeen on change
-  const showContinue = isNarrow && hasCanvas && activeTab === 'chat' && !currentSeen
+  // Continue appears only once the turn has SETTLED (end of the finished
+  // caption) — never mid-stream, never as a persistent bottom bar. Covers BOTH
+  // T.4e cases: a frame already displayed but not yet looked at (!currentSeen),
+  // and a frame still queued in pendingCanvas (new material waiting to swap
+  // in) — either way there's something worth a tap. Suppressed while browsing
+  // history (that has its own "Return to current" affordance).
+  const showContinue =
+    isNarrow &&
+    !historyViewId &&
+    (hasCanvas || Boolean(pendingCanvas)) &&
+    activeTab === 'chat' &&
+    (Boolean(pendingCanvas) || !currentSeen) &&
+    !sending
+  const continueTitle = pendingCanvas?.title || shownDirective?.title || 'the canvas'
+
+  // Unified accept: swap in whatever's pending (if anything) and reveal the
+  // canvas pane. Used by both the narrow inline chat button and (indirectly,
+  // via acceptPendingCanvas alone) the wide overlay pill.
+  function continueToCanvas() {
+    if (pendingCanvas) acceptPendingCanvas()
+    setActiveTab('canvas')
+  }
+  function viewHistoryEntry(id) {
+    setHistoryViewId(id)
+    setHistoryOpen(false)
+    if (isNarrow) setActiveTab('canvas')
+  }
+  function returnToCurrent() {
+    setHistoryViewId(null)
+  }
 
   function onSelect(sel) {
     const type = canvasRef.current?.type || 'canvas'
@@ -244,11 +290,12 @@ export default function SessionView() {
   const streamingLastEmpty =
     sending && messages.length > 0 && messages[messages.length - 1].role === 'assistant'
 
-  // Retain the last directive while sliding away so it slides out WITH its content.
-  const shownDirective = canvas || lastDirectiveRef.current
+  // shownDirective (declared above, alongside canvasRef) already retains the
+  // last live directive while sliding away, AND resolves a browsed history
+  // entry when one is active — both cases slide/render correctly here.
   const canvasPane = (
     <div className="h-full flex flex-col min-h-0">
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 relative">
         <ContentCanvas
           directive={shownDirective}
           selecting={selecting}
@@ -257,6 +304,36 @@ export default function SessionView() {
           onLiveState={reportLiveState}
           pinnedRect={pendingSelection?.rectPct}
         />
+        {historyViewId ? (
+          // Browsing an older directive — always offered a way back, wide or narrow.
+          <div className="absolute inset-x-0 bottom-3 z-20 flex justify-center px-4">
+            <button
+              type="button"
+              onClick={returnToCurrent}
+              className="rounded-full bg-ink/90 px-4 py-2 text-[12px] font-semibold text-white shadow-card active:scale-[0.98] flex items-center gap-2"
+            >
+              <span aria-hidden>←</span>
+              <span>Return to current</span>
+              <span aria-hidden>→</span>
+            </button>
+          </div>
+        ) : (
+          !isNarrow &&
+          pendingCanvas && (
+            // Wide VP only (narrow uses the inline chat Continue button off the
+            // same pendingCanvas state) — tap swaps + marks seen.
+            <div className="absolute inset-x-0 bottom-3 z-20 flex justify-center px-4">
+              <button
+                type="button"
+                onClick={acceptPendingCanvas}
+                className="max-w-full rounded-full bg-accent px-4 py-2 text-[12px] font-semibold text-white shadow-card active:scale-[0.98] flex items-center gap-2 session-fade"
+              >
+                <span className="truncate">Continue to {pendingCanvas.title}</span>
+                <span aria-hidden>→</span>
+              </button>
+            </div>
+          )
+        )}
       </div>
       {isNarrow && (
         // Narrow only: explicit return to chat (the canvas isn't beside the chat).
@@ -309,10 +386,10 @@ export default function SessionView() {
               // it frees the bottom bar. No auto-shift ever yanks the chat away.
               <button
                 type="button"
-                onClick={() => setActiveTab('canvas')}
+                onClick={continueToCanvas}
                 className="w-full rounded-xl bg-accent px-4 py-3 text-[13px] font-semibold text-white shadow-card active:scale-[0.99] session-fade flex items-center justify-center gap-2"
               >
-                <span className="truncate">Continue to {shownDirective?.title || 'the canvas'}</span>
+                <span className="truncate">Continue to {continueTitle}</span>
                 <span aria-hidden>→</span>
               </button>
             ) : null
@@ -345,7 +422,8 @@ export default function SessionView() {
   return (
     // Locked to the window (#9): the app frame NEVER scrolls — only inner
     // containers do (chat list, canvas content, terminal inside its frame).
-    <div className="h-[100dvh] flex flex-col overflow-hidden bg-paper">
+    // `relative` anchors the history popover.
+    <div className="relative h-[100dvh] flex flex-col overflow-hidden bg-paper">
       {isNarrow ? (
         // Compact, translucent single-row header (Grok-style): title + progress
         // pill + slim progress line + nav/settings chips. ~46px total (~5-6% of a
@@ -373,6 +451,16 @@ export default function SessionView() {
                 {showContinue && activeTab !== 'canvas' && (
                   <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
                 )}
+              </button>
+            )}
+            {canvasHistory.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setHistoryOpen((v) => !v)}
+                title="Revisit earlier canvas material"
+                className="shrink-0 rounded-full border border-rule/70 bg-white/60 px-2 py-1 text-[11px] font-medium text-muted active:scale-95"
+              >
+                ‹ History
               </button>
             )}
             <button
@@ -405,8 +493,44 @@ export default function SessionView() {
             >
               ↻ Restart
             </button>
+            {canvasHistory.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setHistoryOpen((v) => !v)}
+                className="shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-muted hover:text-ink underline underline-offset-2"
+              >
+                ‹ History
+              </button>
+            )}
           </div>
           {hasCanvas && <OrientationToggle orientation={orientation} onChange={changeOrientation} />}
+        </div>
+      )}
+
+      {historyOpen && (
+        <div className="absolute right-3 top-12 sm:top-14 z-40 w-64 max-h-80 overflow-y-auto rounded-lg border border-rule bg-white shadow-card">
+          <div className="sticky top-0 flex items-center justify-between border-b border-rule bg-white px-3 py-2">
+            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">History</span>
+            <button type="button" onClick={() => setHistoryOpen(false)} className="text-muted hover:text-ink text-[13px] leading-none">
+              ✕
+            </button>
+          </div>
+          <ul>
+            {[...canvasHistory].reverse().map((d) => (
+              <li key={d.id}>
+                <button
+                  type="button"
+                  onClick={() => viewHistoryEntry(d.id)}
+                  className={`w-full text-left px-3 py-2 text-[12px] hover:bg-accent/5 flex items-center justify-between gap-2 ${
+                    canvasId === d.id ? 'bg-accent/10' : ''
+                  }`}
+                >
+                  <span className="truncate text-ink">{d.title || d.id}</span>
+                  <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.1em] text-muted">{d.type}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

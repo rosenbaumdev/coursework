@@ -1,345 +1,227 @@
 # Status (rolling)
 
-## Phase T.4 — Day-1 dry-run feedback (14 items) (2026-07-05)
-Jonathan's walk-through feedback. Decisions locked: Day1 = Explore→Size→Decide;
-artifacts = collaborative + saved to user files (revises Fable §2); visual engine
-= declarative figure spec. Restart fresh after changes (old session incompatible;
-artifacts are throwaway test data). Engine names: **Director** (primary) + **Usher**
-(secondary/reformer).
+## Phase T.5 / T.4d-fix — Runtime [FIG:] value injection + canvas-sync discipline + client animations/swipe + dynamic slate — COMPLETE (2026-07-06)
 
-Fable-independent (build now):
-- [ ] Usher for the session: port `resolveChips` (model tag → Haiku → deterministic)
-      + `ensureQuestion`/`looksAnswerable` so EVERY turn ends with a clear ask
-      (#6, #11). Wire into start.js + message.js.
-- [ ] Stream the opener (start.js → SSE like message.js) so it doesn't appear
-      all at once (#3). Top-anchor scroll already gives expand-to-bottom-then-overflow.
-- [ ] Lock app to window on desktop: `100dvh`, no page scroll; inner containers
-      scroll only (chat, terminal-in-frame, portrait docs/browser); canvas fits
-      pane (#9).
-- [ ] Pulse/attention cue on multi-page deck [Next] (#5).
-- [ ] Copy button on chat bubbles + code blocks (#13).
-- [x] Acronym/framework intros: spell out on first use + teach before the figure
-      (TAM/SAM/SOM, SWOT, GTM) — masterPrompt method rule + pack text (#2, #10).
-      (Landed in the Day-1 rewrite: Teaching rules block + spelled-out pack text.)
+Owner-reported live bug: chat computed SAM ≈ $37,500 while canvas sat frozen on
+a bare TAM ring. Root cause: no mechanism existed for the Director to push a
+computed number onto a figure element without a full [SHOW:] step, and no
+prompt discipline forcing the canvas to track the conversation. This phase
+promoted the reserved v1.1 [FIG:] grammar (fable-collab-figures-review.md §2.4)
+forward, added prompt discipline, client-side figure animations/swipe, and a
+live-updatable arc slate. A prior agent died mid-work; this pass audited what
+it left (`_turnCore.js` fully done; `_session.js`/`_sessionPacks.js` had the
+mechanics built but NOT wired into the endpoints, plus one prompt-text
+regression) and completed the rest. Full audit + findings in `tasks/state.md`
+under "T.4d-fix — figure values + never-orphan + figure UX polish".
 
-Fable consult first (then build):
-- [x] Collaborative artifacts (#12, #14): Director drafts memo FROM chat work,
-      prepopulates templates for arcs 2/3, learner edits/owns; gate → reviewed+
-      edited (provenance logged); persist to private-bucket mirrors (learner
-      surface at Step 6 per Fable §1.6). Revises grammar contract §2.
-      → `tasks/fable-collab-figures-review.md`. Engine landed earlier in T.4;
-      pack side (sizing `need` lines encode the workflow) landed in the rewrite.
-- [x] Declarative figure engine (#4, #7): data-driven figures (concentric/quadrant
-      v1 + callouts + generic step reveal), progressive build-up via
-      [SHOW: key@step] + persisted figureState, validated targets, SVG render
-      (FigureCanvas). funnel/bars = later kinds, renderer-only once needed.
+### 1. [FIG:] runtime value injection
+- [x] `_turnCore.js`: `FIG_RE`, `'[FIG:'` in `CONTROL_STARTS`, quoted-comma-
+      tolerant key=value pair parser, `parseTurn` returns `parsed.figValues`,
+      stripped from cleanText. (Found already complete from the dead agent.)
+- [x] `_sessionPacks.js`: `figureElementIds(kind, spec)`, `mergeFigureValues`
+      (ring override, quadrant append, iconrow sub override + add-item),
+      `resolveShowTarget` merges `figureValues`/`figureAdditions`. (Found
+      already complete.)
+- [x] `_session.js`: `newLesson` seeds `figureValues`/`figureAdditions`/
+      `figureValuesHash: {}`. `applyFigureValues` validates ids at apply time,
+      handles `add=` (max 6 iconrow items). `resolveCanvasChange` extended:
+      values-hash change on the CURRENTLY shown figure emits with no [SHOW:].
+      (Found already complete — this was the dead agent's actual work.)
+- [x] Wired `applyFigureValues` into `message.js` and `start.js`'s
+      `settleOpener`, BEFORE canvas resolution in both — **this was the actual
+      gap**: the function existed and was unit-tested directly, but nothing
+      in the request handlers ever called it, so `[FIG:]` tags were silently
+      inert in production.
 
-After Fable — the big content authoring:
-- [x] Day-1 pack rewrite: Explore (interest areas + earning vectors: app, influencer
-      faced/faceless, affiliate/social, digital goods, services) → Size → Decide
-      (#1); real visual figures replacing text decks (#4); collaborative prepop
-      memos (#12,#14). 18 objectives / 16 R; harnesses 137+64; live smoke clean.
-- [ ] Navigable browser examples + ever-present [Return] (#8). DEFERRED: true
-      multi-page nav + [Return] is client BrowserCanvas work; interim shipped in
-      the Day-1 rewrite — richer curated competitor mock with internal anchor nav.
+### 2. Canvas-sync prompt discipline
+- [x] `buildSessionSystemPrompt` CANVAS section already taught `[FIG:]` +
+      "THE CANVAS MUST TRACK THE CONVERSATION" (found already complete).
+      Fixed a regression in the SAME function: the figure-targets line
+      appended `; ids: ...` inside the parens the harness's substring check
+      depends on, breaking it (64/64 → 63/64) — moved ids to a trailing
+      `[ids: ...]` outside the parens. Added a new METHOD line forbidding
+      tags-only turns (speak + end on an ask whenever [SHOW:]/[FIG:]/[TICK:]
+      fire).
+- [x] `buildSessionEnvelope` figure block (steps + current values + mismatch
+      nudge) — found already complete.
+- [x] Never-orphan guarantee (message.js + start.js): widened the trigger to
+      `!cleanText || !looksAnswerable(cleanText)` (was `!looksAnswerable`
+      only — a tags-only turn producing literal `''` didn't fire it). New
+      `fallbackAsk(pack, session, canvasDirective)` in `_session.js` —
+      deterministic, no network call — used whenever `ensureNextAsk` (Haiku)
+      also comes back `''`.
 
-Then: restart clean → re-walk.
+### 3. Client animations + swipe
+- [x] `FigureCanvas.jsx`: `.value-pop` animation (scale 1.15→1 + brief accent
+      glow, ~350ms, reduced-motion respected) via a `ValueGroup` wrapper keyed
+      on `${id}:${value}` (remount-to-reanimate — no manual diffing/timers);
+      `splitAssumption()` splits a value's embedded parenthetical for smaller/
+      muted sub-rendering (concentric ring / funnel band / bars value); local
+      learner-navigable step state (prev/next + dots + n/total — nav had
+      regressed to dots-only) capped at the server-resolved frontier; swipe
+      (48px horizontal-dominant) via `useRef` (a plain object was silently
+      dropping swipes across the frequent re-renders a streaming turn causes);
+      directional slide (`.step-enter-advance`/`.step-enter-retreat`);
+      `touch-action:pan-y`; reports the learner's actual displayed step via a
+      new `onLiveState` prop.
+- [x] `DeckCanvas.jsx`: fixed the same plain-object swipe-state bug; added
+      `touch-action:pan-y`; added directional slide-in per page change.
+- [x] `describeCanvas.js`: figure case now reads the learner's actual
+      displayed step from `liveState` (an object for this canvas type) instead
+      of always trusting the server frontier.
+- [x] `index.css`: `.step-enter-advance`/`.step-enter-retreat`/`.value-pop`
+      keyframes, reduced-motion guarded.
+- [x] `useSessionDriver.js` / `ContentCanvas.jsx`: verified (not touched) —
+      figure directives already re-render in place via `key={directive.id}`
+      (base key, unaffected by step/value changes).
 
----
+### 4. Dynamic slate
+- [x] `figure.slate` (iconrow, his 3 arcs) + `[FIG: figure.slate :: add=...]` +
+      `canvasDefaults['explore.lock']` + masterPrompt note — found already
+      fully authored/wired by the dead agent. No gap.
 
-## Phase T.3 — Session engine + Day-1 runnable as Jonathan's test walk (2026-07-04)
-Decision (Jonathan): make Day 1 walkable by HIM as the test — it's a bottle
-episode (self-contained decision day) that exercises graphs, video, decks,
-browser, readings, and gated artifacts. Scope = Steps 3+4 of the build order,
-LOCAL ONLY (no deploy until Step 6 security gate).
+### Verify
+- [x] `node --check` on every touched functions file
+- [x] session-pack-test.mjs 257→**267/267**, session-engine-test.mjs 64→**82/82**
+      (extended: mergeFigureValues per-kind + parenthetical + cap-at-6,
+      applyFigureValues incl. unknown-id/unknown-key drop, values-hash
+      emit-then-settle, dynamic-slate add= end-to-end, fallbackAsk both
+      branches, tags-only-turn→empty-cleanText trigger proof)
+- [x] `npm run build` clean (430KB/134KB gzip, +0 deps)
+- [ ] Live smoke — SKIPPED per the owner's explicit guard: Zachary's day-1
+      session has ~20 real turns and must not be reset/smoked; `jordan` has
+      no pack (404, can't render a figure). Relied on harness + build only —
+      screenshots of the new nav/swipe/pop-animation are NOT captured.
+- [x] Updated tasks/state.md + todo.md
 
-Content (bottle-episode completeness):
-- [ ] Generate `public/session-assets/tam-som-circles.svg` (nested-circles graph)
-      + add `image.tam-circles` and `video.sizing` (placeholder assets) targets
-      to ZACHARY_DAY_1 canvasProgram.
+Do NOT touch interview/_usher/showcase. No new deps (kept).
 
-Engine (`functions/_session.js` — instruction-register prompt layer over _turnCore):
-- [ ] System prompt: engine-universal METHOD scaffolding (tick discipline incl.
-      bare-check-tick-rejected rule, artifact = learner-authored + gate, [SHOW:]
-      menu, [TABLE: tangent], [SUGGESTED_REPLIES], pacing from pack.budget,
-      pronouns) + pack.masterPrompt. Distinct from interview register.
-- [ ] Envelope per turn: objective board (evidence shown) + FOCUS + CANVAS NOW +
-      learner live state + artifact gate status + parked notes + rejected-tick
-      feedback + session summary (window memory).
-- [ ] Window memory v1: keep last 16 turns verbatim; when history > 24, fold
-      oldest into running `sessionSummary` via one Haiku call (inline).
-- [ ] tickGuard: check-type needs evidence; artifact-type needs
-      isArtifactSatisfied. extraTableIds=[tangent]. maxNewTicks=3.
-- [ ] [SHOW:] 3-tier: model target (validated) → canvasDefaults[new focus] on
-      focus advance → keep current. Emitted as SSE `canvas` frame.
-- [ ] State: R2 private bucket `lessons/<student>/<course>/day-<id>.json`;
-      turn seq guard (client echoes seq; stale → 409); completion = all R ticked
-      (low floor) OR budget.maxTurns ceiling.
+## Phase T.4e — Canvas pending-swap + history (client driver/SessionView) — COMPLETE (2026-07-06)
+Owner-scoped design brief (delivered inline, not previously written here — this
+section documents it retroactively): mid-conversation canvas swaps were
+yanking the visible pane on wide viewports the instant a new [SHOW:] frame
+landed. Fixed by queuing a "different material" frame instead of applying it
+immediately, surfaced as an explicit tap-to-continue affordance, plus a small
+history of recently-displayed material to revisit.
+- [x] `useSSESessionDriver` (`src/session/useSessionDriver.js`): new `pendingCanvas`
+      state — an incoming canvas frame whose `id` differs from the currently
+      DISPLAYED `canvas`'s id queues into `pendingCanvas` instead of replacing
+      `canvas`; a frame with the SAME id (a figure step/value update, or the
+      very first frame of the session) applies immediately in place via a new
+      `applyCanvasFrame()` helper (used by bootstrap's resume/fresh-stream path
+      and by `send()`'s canvas frames alike). `acceptPendingCanvas()` swaps the
+      queued frame into `canvas` (the tap handler). `artifactPending`/`artifact`
+      frames patch BOTH `canvas` and `pendingCanvas` (a drafting artifact might
+      be the queued pane, not the displayed one).
+- [x] History: driver keeps `history` — last 20 DISTINCT displayed directives
+      (deduped by id, oldest→newest), pushed by `applyCanvasFrame`/
+      `acceptPendingCanvas`. `restart()` resets `pendingCanvas`/`history` too.
+- [x] `SessionView.jsx`: wide VP — a "Continue to `<title>` →" pill overlaid on
+      the canvas pane (bottom-center) when `pendingCanvas` is set; tap calls
+      `acceptPendingCanvas()` (marks seen via the existing canvasId-driven
+      `markSeen` effect — no separate call needed). Narrow VP — the existing
+      inline chat "Continue to X" button now sources its title from
+      `pendingCanvas ?? shownDirective` and its handler (`continueToCanvas`)
+      accepts the pending frame (if any) before switching to the canvas tab —
+      same `showContinue` gate, extended to also fire on a queued pending frame
+      (not just an already-displayed-but-unseen one).
+- [x] History UI: a "‹ History" chip (narrow header + wide header, shown only
+      when 2+ distinct directives exist) opens a small popover list (title +
+      type per row, current entry highlighted); clicking an entry sets local
+      `historyViewId` and renders that directive instead of the live one — a
+      "← Return to current →" pill (canvas-pane overlay, both viewports)
+      clears it. `historyViewId`/`historyOpen` are SessionView-local UI state,
+      not driver state (browsing history never touches the server-authoritative
+      session).
+- [x] `canvasRef.current` (what `buildContext`/`describeCanvas` see) is derived
+      from `shownDirective = historyEntry || (canvas || lastDirectiveRef.current)`
+      — always the ACTUALLY-displayed directive, live or browsed, never the
+      queued pending one. The `canvasId`-keyed effects (live-state reset,
+      seen-marking) were re-pointed at `shownDirective?.id` for the same reason.
+- [x] `node --check` N/A (client-only); `npm run build` clean — confirms the new
+      `CompareCanvas.jsx` (T.4f) and all SessionView/driver edits compile.
+- [ ] Live/screenshot verification — SKIPPED, no student pack available to
+      exercise without touching Zachary's live session (forbidden) or `jordan`
+      (404, no pack). Same guard T.4d-fix hit; relied on build + code review.
 
-Endpoints (`functions/[studentSlug]/api/session/`):
-- [ ] `start.js` — create/resume (+ `reset:true` for test restarts); returns
-      messages, suggestions, canvas, artifacts, progress, seq.
-- [ ] `message.js` — REPLACE the open demo chat with the engine (also closes the
-      open-LLM-proxy finding at the code level; CF Access still pre-deploy).
-      SSE: delta / canvas / done frames.
-- [ ] `artifact.js` — learner-authored artifact content sync (id + content);
-      server stores; returns gate satisfied state.
+Do NOT touch interview/_usher/showcase.
 
-Client (Step 4, behind the DriverState seam):
-- [ ] `useSSESessionDriver(studentSlug, day)` in `src/session/useSessionDriver.js`
-      — mirrors InterviewView SSE loop; canvas frames drive ContentCanvas;
-      artifact edits debounce-POST to artifact endpoint; seq tracked.
-- [ ] `SessionView.jsx`: real driver when studentSlug has a session pack, scripted
-      showcase otherwise (bare `/session` demo keeps working); Restart = start
-      with reset:true. Progress header shows ticked/totalRequired + focus.
+## Phase T.4f — Runtime canvas generation, Tiers 2+3 (LOCKED by Jonathan: build both, no Fable pass) — COMPLETE (2026-07-06)
+Theater trio: Director decides, STAGEHAND builds, Usher lands the turn.
+- [x] Tier 2 — instantiation: authored figures usable as TEMPLATES. Grammar
+      `[SHOW: <figureKey>#<instanceId>]` (+ optional @step); instances live in
+      `session.figureInstances[key#id] = {step, values}`; `[FIG: key#id :: ...]`
+      targets an instance (`applyFigureValues` splits on `#`, malformed id
+      degrades to the base figure — never throws, never blanks); validator:
+      `#` reserved in authored `canvasProgram` keys / `canvasDefaults` /
+      `entry.canvas` (alongside the existing `@` rule); instance ids
+      `/^[a-z0-9-]{1,24}$/` (`INSTANCE_ID_RE`, exported). Step/hash bookkeeping
+      generalized: `getFigureStep`/`setFigureStep` route a directive id with
+      `#` to `figureInstances[id].step`, else the existing `figureState[id]` —
+      `resolveCanvasChange`/`currentCanvasDirective` needed NO other changes
+      (they already operate generically on "whatever `dir.id` is"). Covers
+      per-arc TAM/SAM/SOM (translator/gym/community) reused as one template.
+- [x] Tier 2 — compare view: new canvas/directive type `compare`, payload
+      `{ a, b }` (each a fully-resolved CanvasDirective). Grammar
+      `[SHOW: compare(targetA, targetB)]` — `resolveShowTarget` matches
+      `compare(...)` FIRST and resolves both sides recursively through itself
+      (any target form: key, `key#instance`, `key@step`, or both); either side
+      unresolvable → the whole compare fails (tier-3 keeps current, never a
+      half-broken split). `describeCanvas.js` summarizes both sides. Client:
+      new `CompareCanvas.jsx` renders two mini-panes (stacks on narrow) reusing
+      the SAME per-type renderer map ContentCanvas uses; registered in
+      `ContentCanvas.jsx`'s `RENDERERS`. Engine freshness: `compareStateKey`
+      (step+values-hash per figure side) reuses the `figureValuesHash` map
+      keyed by the compare's own id, so a value/step change on EITHER side
+      re-emits on the next `[SHOW: compare(...)]` (a bare `[FIG:]` alone, with
+      no fresh `[SHOW:]` that turn, does NOT auto-refresh a live compare —
+      documented v1 scope limit, mirrors the single-figure mechanism but not
+      extended to compare's no-`[SHOW:]` branch).
+- [x] Tier 3 — STAGEHAND (`runStagehand` in `_session.js`): `[STAGE: <request>]`
+      parsed in `_turnCore.js` (`STAGE_RE`, single-line capture, `'[STAGE:'` in
+      `CONTROL_STARTS`, last-wins like `[SHOW:]`, stripped from cleanText).
+      Wired into BOTH settle paths (`message.js` + `start.js`'s `settleOpener`)
+      right after `applyFigureValues`, before canvas resolution — success
+      force-shows the new key that turn (overrides the model's own `[SHOW:]`,
+      since the build IS the response); failure leaves the canvas alone and
+      sets `session.lastStageNote` (one-shot, surfaced in the NEXT envelope,
+      cleared right after). Haiku (`claude-haiku-4-5`) first, ONE Sonnet-5 retry
+      (fed the validation errors, adaptive thinking) on failure; strict JSON
+      `{kind, title, spec}` (`kind` = a figure kind or `"deck"`), validated via
+      the SAME `validateFigureSpec`/`validateDeckEntry` authored packs use (now
+      exported from `_sessionPacks.js`, zero separate validation surface).
+      Success → `session.dynamicProgram["stage.N"]`, merged into
+      `pack.canvasProgram` at resolve time (`resolveFigureDir` in `_session.js`)
+      so a dynamic target is addressable exactly like an authored one — no
+      changes needed to `resolveShowTarget` itself. Hard cap
+      `STAGE_MAX_BUILDS = 6`/session (checked BEFORE any model call — a capped
+      request costs nothing). `transcriptLog` records `{request, ok, key,
+      reason, spec}` on every attempt.
+- [x] Prompt: `buildSessionSystemPrompt`'s CANVAS section teaches `#instances`,
+      `compare(a, b)`, and `[STAGE:]` (framed as last-resort — prefer an
+      authored target/instance/compare first; costs a real call; capped;
+      failure keeps the canvas + gets a note). Envelope
+      (`buildSessionEnvelope`) lists `STAGE-BUILT TARGETS` (session-scoped,
+      with a `N/STAGE_MAX_BUILDS used` counter) and any pending
+      `STAGE BUILD NOTE`.
+- [x] Harness coverage: `session-pack-test.mjs` 267→**293/293** (instance
+      resolve/resume/step-override/value-merge/malformed-id-degrade, compare
+      resolve incl. unresolvable-side failure + per-side `@step` + non-figure
+      sides, validator `#`-forbidden in canvasProgram/canvasDefaults/
+      entry.canvas, exported `FIGURE_KINDS`/`ICON_GLYPHS`/`validateFigureSpec`/
+      `validateDeckEntry`/`INSTANCE_ID_RE` sanity); `session-engine-test.mjs`
+      82→**118/118** ([STAGE:] parse incl. last-wins + stream guard,
+      `applyFigureValues` instance write + malformed-id degrade, engine-level
+      `resolveCanvasChange`/`currentCanvasDirective` for instances + compare
+      incl. the value-change-on-showing-instance-emits case and the
+      value-change-on-one-compared-side-re-emits case, `runStagehand`'s hard
+      cap refusing before any network call, dynamicProgram end-to-end resolve
+      through the normal `[SHOW:]` path, envelope dynamic-targets listing +
+      stage-note surfacing, system-prompt teaching-copy assertions).
+      Screenshots NOT captured (see T.4e note above — same no-live-session
+      guard applies; STAGEHAND additionally needs a real Anthropic call this
+      environment didn't exercise live).
+- [x] `node --check` clean on every touched `functions/**/*.js`; `npm run build`
+      clean (434KB/135KB gzip, +0 deps).
 
-Verify:
-- [ ] Engine unit tests in scratchpad harness (envelope render, fold trigger,
-      tickGuard paths, 3-tier canvas resolution, seq guard).
-- [ ] Build + headless render of /zachary/session.
-- [ ] Live local walk: start → real Sonnet turn → [SHOW:] canvas change → write
-      artifact → gate opens → tick honored w/ evidence → progress advances.
-- [ ] Interview regression untouched (same shared core).
-- [ ] Update state.md. NOT in scope: deploy, CF Access, learner-record write
-      (Step 5), syllabus doc, days 2+.
-
----
-
-## Phase T.2 — Fable grammar-review fixes (pre-Day-1 authoring) (2026-07-04)
-Source: `tasks/fable-grammar-review.md` (review #2). Goal: clear the 4 blocking
-items + accepted question-verdicts + the Step-3 trap, extend the harness,
-regression-check the interview, then author Zachary's Day 1 (Step 2b).
-
-Blocking (A–D):
-- [x] A. `validateSessionPack`: flag any `- [`-prefixed line that does NOT match
-      `LINE_RE` (silent line-drop today; em-dash/type typos vanish undetected).
-- [x] B. Strip SHOWCASE_DAY `masterPrompt` to genuinely day-specific persona;
-      engine-universal method text (parking, tick discipline, canvas-driving)
-      belongs in `_session.js` (Step 3), not the authoring template.
-- [x] C. Declare the artifact-provenance contract in `_sessionPacks.js` docs:
-      v1 artifact content is LEARNER-AUTHORED ONLY; model scaffolds via
-      canvasProgram (template as a reading target), never writes into
-      `session.artifacts`. Otherwise minChars is theater.
-- [x] D. Optional per-day `budget: { maxTurns, targetMinutes }` field +
-      validator coverage. SHOWCASE_DAY carries one as the template example.
-
-Accepted question-verdicts:
-- [x] Q8: `exit.reportSchema` optional; export `DEFAULT_REPORT_SCHEMA`
-      (engine default, per-day override only when needed).
-- [x] Q10: reserve `tangent` as a TABLE target (export `TANGENT_TABLE_ID`);
-      `applyTurnEffects` accepts it via opts so lesson tangents aren't
-      silently dropped when not tied to a known objective id.
-
-Step-3 trap (fix now in `_turnCore.js` while fresh):
-- [x] `parseTurn`: support `[TICK: id :: evidence]` — a `::` payload is ONE
-      id + evidence (no comma-split); returns `ticks` (ids, shape unchanged
-      for interview consumers) + new `evidence` map `{id: string}`.
-- [x] `applyTurnEffects`: persist evidence into state; accept
-      `opts.tickGuard(id, evidence) → bool` (session engine rejects
-      evidence-less `check` ticks + unsatisfied artifact ticks; interview
-      passes no guard → unchanged). Accept `opts.extraTableIds` for tangent.
-
-Verify:
-- [x] Extend `session-pack-test.mjs` (malformed-line, budget, evidence parse
-      incl. mixed forms, evidence persisted, tickGuard rejection, tangent,
-      comma-ids still work); `node --check`; `npm run build`.
-- [x] Interview regression: one live turn on :8788; wipe test session.
-- [x] Update `tasks/state.md`; then → author Zachary Day-1 pack (Step 2b).
-
----
-
-## Phase S.2 — Interview instrument redesign: objective inventory (2026-07-01)
-Root-cause fix for the drift (model froze in Section 1, mined out of order, never advanced). Replace the 7-section + `[SECTION_COMPLETE]` machine with a **granular objective inventory**.
-
-Design (Jonathan's spec):
-- **Inventory md** = a program of checkable objectives (ids like `care.energy`), authored as markdown, course-scoped. Source of truth for the interview program.
-- **Rendered into every envelope** with live tick-state ([x]/[ ]) so the model always sees what's captured vs open, and can't lose the plan.
-- **Advancement = ticking boxes.** Model emits `[TICK: id]` when an objective is genuinely covered; server validates the id + records it (authoritative). Interview completes when all *required* boxes are ticked (or MAX_TURNS).
-- **Drift gate (the two questions, injected into the envelope):** before pursuing any tangent the model must ask — (1) does this genuinely advance an *unticked* objective, meaningfully better than what's already captured? (2) is now the right time, or does it belong under a later objective → `[TABLE: id :: note]` to park it and steer back.
-- **Parking lot** in session state: tabled threads keyed to the objective they resurface under; the envelope surfaces a due note when its objective becomes the focus.
-- Keep `[SUGGESTED_REPLIES]`. Drop `[SECTION_COMPLETE]`.
-- **Pacing safety net (server):** cap new ticks/turn (rushing = ticking many at once) + floor on total turns before "complete".
-
-Session schema delta (no live user data yet — only local test sessions): add `inventory` (tick state by id) + `parkingLot[]`. Remove `currentSection`/`sectionTurnCounts` reliance; keep transcript/history.
-
-Decisions (locked): soft spine + opportunistic ticks + tabling; required boxes block completion, bonus don't. Model: interviewer → `claude-sonnet-5` + `thinking:{adaptive}` effort medium (Haiku emitted 0 ticks/13 turns — see lessons.md).
-
-Tasks:
-- [x] `functions/_inventory.js` — inventory authored as md checklist, parsed to structured objectives (15 total, 11 required). `getInventory`/`focus`/`render`/`progress` helpers.
-- [x] `_interview.js`: inventory envelope (live tick-state + focus + due parked notes + two-question drift gate); `parseTurn` for `[TICK]`/`[TABLE]`/`[SUGGESTED_REPLIES]`; `applyTurnEffects` (server-authoritative, cap=3, dedupe); new session shape (`inventoryState`+`parkingLot`); Sonnet 5 + adaptive thinking; pacing = turn-floor 10.
-- [x] `start.js` + `message.js`: new engine; streaming guard learns `[TICK:`/`[TABLE:`; completion = all required ticked past floor.
-- [x] `InterviewView.jsx`: progress bar = ticked/totalRequired + focus label.
-- [x] Verify: unit tests pass; live walk on Sonnet 5 ticked all 11 required, **tabled** a sports-betting thread and resurfaced it, completed at turn 12, profile synth wrote a grounded 12KB profile to R2. Haiku walk (0 ticks) documented the model dependency.
-
-**Next:** commit Phase S.1 + S.2 (still nothing committed); Jonathan browser-walks `jserver:8788/zachary/interview`; then deploy + rotate API key.
-
----
-
-## Phase S.1 — Interview UX polish (2026-07-01)
-Jonathan's first-run feedback on `/zachary/interview`. Four asks:
-- [x] **Markdown rendering** — assistant bubbles render `#`/`**`/lists via react-markdown (chat-tuned `CHAT_MD` map). User bubbles stay plain.
-- [x] **Mobile full-screen** — `100dvh`, `px-4 sm:px-6`, wider bubbles (`max-w-[90%] sm:max-w-[82%]`), safe-area padding on composer.
-- [x] **Streaming text** — `message` now returns SSE (`callAnthropicStream` + `consumeAnthropicSSE`). Server owns the gate: `safeEmitLen` withholds trailing control-tag region so tags never flash, on stream-end `parseAssistantOutput` strips tags, minTurns gate runs, `saveSession`, `waitUntil` synth, final `done` frame. `start` stays JSON. Verified: 6 deltas + 1 done, 0 leaks; char-by-char guard unit test passes (no leak in any case).
-- [x] **Multichoice chips** — model emits `[SUGGESTED_REPLIES: a | b | c]`; parsed+stripped server-side; returned via start JSON + message `done` frame; rendered as tappable chips (send-on-tap), free-typing always available. Verified: opening offered 3 chips, open-ended turn offered none.
-
-Verified on preview (jserver:8788). Not yet: real browser walk (Jonathan), prod deploy, key rotation. Nothing committed.
-Known cosmetic: streamed bubble keeps a trailing `\n` until the `done` frame overwrites it with authoritative cleanText — invisible (markdown collapses it).
-
-Design calls (proceeding without blocking): stream message-turns only (opening/resume stay non-streamed); multichoice is model-driven + optional, never a cage.
-
----
-
-Active phase: **Phase S — Ingestion interview app (Zachary).** Port the claude.ai prototype (`coursework-app.zip`, design captured in this session) onto the serverless CF Pages + Functions stack. Goal: live, server-controlled onboarding interview at `/<studentSlug>/interview` that writes a Sonnet-synthesized profile to a *private* store. Proctor + Jonathan's feedback dashboard = deliberate later phase.
-
-## Phase S plan (2026-06-30)
-
-**What ports verbatim from the prototype** (logic is good): the 7-section instrument + per-turn envelope/state-machine (`interview-spec.js`), the "make him feel heard" base prompt (`base-system-prompt.js`), Haiku for chat turns + Sonnet for profile synthesis, the `[SECTION_COMPLETE]` + `minTurns` advancement gate, the schema'd profile output.
-
-**What changes for serverless:**
-- Express routes → Pages Functions `functions/[studentSlug]/api/interview/start.js` + `message.js` (mirrors existing `api/assets` routing).
-- In-memory `sessions{}` → session JSON persisted to a **dedicated private R2 bucket `coursework-interview`** (binding `INTERVIEW`). R2 = strong read-after-write (safe for turn-by-turn state). Separate bucket = unreachable by the public file proxy (the real reason: Jordan's empty-prefix proxy can read all of `coursework-assets`).
-- `fs.writeFileSync(profile)` → `INTERVIEW.put('profiles/<slug>-profile.md', ...)` + transcript JSON. Profile generated via `context.waitUntil()` so the final turn's HTTP response isn't blocked on the ~4k-token Sonnet call.
-- Anthropic via plain `fetch` to `api.anthropic.com` (no SDK in edge runtime). Key = CF Pages secret `ANTHROPIC_API_KEY` (+ local `.dev.vars`, gitignored).
-- Dark prototype UI → **light-mode** React route `/<studentSlug>/interview` matching the coursework design system. Student name pulled from registry (no name-entry screen).
-
-**Cost/abuse guard (route is public until Phase Q CF Access):** refuse `start` if a completed profile already exists for the student (one-and-done); hard cap turns/session (~60) to bound runaway API cost. Flag CF Access on `/interview` as the real fix.
-
-### Tasks
-- [x] `wrangler r2 bucket create coursework-interview`; add `[[r2_buckets]] binding=INTERVIEW` to `wrangler.toml`
-- [x] Set CF Pages secret `ANTHROPIC_API_KEY` for project `coursework` (prod) — `.dev.vars` set (local)
-- [x] Add `zachary` to `src/students.js` + `functions/_students.js` (lockstep) with a `noob-to-ai-entrepreneur` course
-- [x] `functions/_interview.js` — ported `SECTIONS`, `buildEnvelope`, `buildBaseSystemPrompt`, profile schema, session/profile R2 helpers (ES modules)
-- [x] `functions/[studentSlug]/api/interview/start.js` (POST) — create/resume session in INTERVIEW bucket, first Haiku turn
-- [x] `functions/[studentSlug]/api/interview/message.js` (POST) — read session, Haiku turn, gate/advance, `waitUntil` profile synth on done
-- [x] `src/components/InterviewView.jsx` — light-mode chat UI + progress bar; route `/<studentSlug>/interview` in `App.jsx`
-- [x] Local test: build clean; live Haiku turns; session persist + resume round-trip proven
-- [x] Deploy; prod smoke `/zachary/interview` (route 200 + real start turn); test session deleted → clean for Zachary
-- [x] Update `state.md`
-- [ ] Walk a FULL interview (all 7 sections → profile synth + R2 write) — first real run is Zachary's
-- [ ] Retrieve Zachary's profile from R2 for Jonathan (on request, after he runs it)
-- [ ] **Jonathan: rotate the pasted API key**; then re-set prod secret + `.dev.vars`
-- [ ] NEXT PHASE: proctor system prompt + Jonathan's structured-feedback dashboard
-
----
-
-Active phase (prior): **Multi-tenant path-per-student on coursework.kitbord.com.** Replaces the prior subdomain-per-course design. Jordan moves from `jordan-sports-betting.kitbord.com` to `coursework.kitbord.com/jordan`; new student `contentcreator` lives at `coursework.kitbord.com/contentcreator`. Single Pages project, single R2 bucket, single mirror repo with per-course storage prefixes.
-
-## Decision inputs (locked 2026-06-03)
-- URL model: **path-per-student** under one domain `coursework.kitbord.com`
-- Root `/` = private splash ("ask your coursemaster for a URL")
-- Per-student URL: `/<studentSlug>` (auto-renders the student's single course; future picker when >1 courses)
-- Dad's view: `/<studentSlug>/dad` and `/<studentSlug>/dad/files`
-- Jordan keeps **flat R2 keys** (`day-N/<cat>/<file>`) — no migration; his course `r2Prefix` is empty string
-- Content-creator gets `r2Prefix = "content-creator/"`
-- GitHub mirror prefixes per course: Jordan `jordan-sports-betting/`, content-creator `content-creator/`
-- Old subdomain `jordan-sports-betting.kitbord.com` → 301-redirect to `coursework.kitbord.com/jordan/:splat` via `_redirects`
-- Single Pages project named `coursework`; single R2 bucket `coursework-assets`. No second project, no second bucket.
-
-## Architecture target
-
-### URL routes
-| URL | What |
-|---|---|
-| `/` | private splash |
-| `/<studentSlug>` | student's course view (auto-resolves to single course) |
-| `/<studentSlug>/dad` | dad's view of that course |
-| `/<studentSlug>/dad/files` | files CMS |
-| `/<studentSlug>/api/assets` | manifest |
-| `/<studentSlug>/api/assets/<dayId>` | POST upload |
-| `/<studentSlug>/api/assets/<dayId>/<cat>/<file>` | DELETE |
-| `/<studentSlug>/files/*` | R2 proxy |
-| `/<studentSlug>/<mdFile>` | static MD source for the course |
-
-### Students config (`src/students.js` + parallel `functions/_students.js`)
-```js
-export const STUDENTS = {
-  jordan: {
-    name: 'Jordan',
-    courses: [
-      {
-        slug: 'sports-betting-ai',
-        title: 'Sports Betting AI',
-        mdFile: 'jordan-sports-betting.md',
-        r2Prefix: '',             // flat — no migration
-        mirrorPrefix: 'jordan-sports-betting/',
-      },
-    ],
-  },
-  contentcreator: {
-    name: 'Content Creator',      // placeholder; real name later
-    courses: [
-      {
-        slug: 'main',
-        title: 'Content Creator',
-        mdFile: 'content-creator.md',
-        r2Prefix: 'content-creator/',
-        mirrorPrefix: 'content-creator/',
-      },
-    ],
-  },
-}
-```
-
-### localStorage namespacing
-Keys become `<studentSlug>.arc` and `<studentSlug>.days`. Existing keys on coursework.rosenbaum.us are already stranded; on kitbord.com everyone starts fresh.
-
-## Migration steps
-
-### Phase N — multi-tenant refactor (code)
-- [ ] `src/students.js` (new) — students + courses config
-- [ ] `src/App.jsx` — routing: `/:studentSlug`, `/:studentSlug/dad`, `/:studentSlug/dad/files`, root splash
-- [ ] `src/courseConfig.js` — delete
-- [ ] `src/components/Header.jsx` — read student/course from props/context (not env)
-- [ ] `src/components/ClaudeLauncher.jsx` — same
-- [ ] `src/components/NotesThread.jsx` — same
-- [ ] `src/hooks/useTrackerData.js` — namespace localStorage by `<studentSlug>` prefix
-- [ ] `src/hooks/useAssets.js` — fetch from `/<studentSlug>/api/assets`, etc.
-- [ ] `src/components/Splash.jsx` (new) — minimal "ask your coursemaster" page
-- [ ] `functions/[studentSlug]/api/assets/index.js` — move from `functions/api/...`
-- [ ] `functions/[studentSlug]/api/assets/[dayId].js` — same
-- [ ] `functions/[studentSlug]/api/assets/[dayId]/[category]/[filename].js` — same
-- [ ] `functions/[studentSlug]/files/[[path]].js` — same
-- [ ] `functions/_students.js` (new) — parallel students config for Functions runtime
-- [ ] `functions/_shared.js` — `r2Key`/`rawUrl` take a course object, not env
-- [ ] `functions/_github.js` — `syncToGitHub`/`removeFromGitHub` take course + pat (not env)
-- [ ] `wrangler.toml` — drop `[vars]` GITHUB_PATH_PREFIX (no longer needed)
-- [ ] `package.json` — collapse `deploy:jordan`/`deploy:cc` → single `deploy`
-- [ ] `public/_redirects` — add 301 for old subdomain → `/jordan/:splat`
-- [ ] Delete `scripts/set-pages-env.mjs` (one-off, no longer needed)
-
-### Phase O — domain swap (jordan-sports-betting → coursework)
-- [ ] Attach `coursework.kitbord.com` to existing Pages project (API)
-- [ ] Create CNAME `coursework.kitbord.com` → `coursework-5lg.pages.dev` (API)
-- [ ] Verify cert provisions + serves
-- [ ] Keep `jordan-sports-betting.kitbord.com` attached (for redirect via `_redirects`)
-- [ ] Deploy
-- [ ] Verify `/jordan`, `/jordan/dad`, `/jordan/dad/files`, and old subdomain redirects
-
-### Phase P — content-creator content
-- [ ] Author `public/content-creator.md` from the 15 briefs already in `assets/Daily Instructor Briefs - content-course/`
-- [ ] Upload each brief as `claude-prompt` via `/contentcreator/api/assets/<dayId>` → R2 + GH mirror
-- [ ] Verify `/contentcreator` renders
-
-### Phase Q — Cloudflare Access
-- [ ] Add Access app: `coursework.kitbord.com/*/dad*` → email `joalro@yahoo.com` (covers both students' dad views)
-- [ ] Add Access app: `coursework.kitbord.com/*/api/assets/*` → same allowlist (covers POST/DELETE; bare `/*/api/assets` stays public for manifest GET)
-
-### Phase R — cleanup + docs
-- [ ] Delete `server/` directory
-- [ ] Delete `~/.coursework-mirror-clone/` + `~/.coursework-mirror-state.json`
-- [ ] Update CLAUDE.md: multi-tenant architecture, route + storage shape, students config
-- [ ] Update `tasks/decisions.md`: supersede subdomain-per-course decision with path-per-student
-- [ ] Update `tasks/state.md`
-- [ ] Update auto-memory: project_active_processes, project_arch_gotchas, reference_infra
-
-## Risks + open questions
-- **localStorage stranded on rosenbaum.us AND jordan-sports-betting.kitbord.com**: per-domain isolation. Notes Jordan added during the brief jordan-sports-betting.kitbord.com era won't carry to coursework.kitbord.com/jordan. Negligible content.
-- **R2 listing collision**: Jordan's flat keys (`day-*`) and content-creator's prefixed keys (`content-creator/day-*`) don't overlap because the prefix in `list()` is computed per course (`{r2Prefix}day-`). Verified by design.
-- **Brief file paths in mirror repo**: Jordan stays at `jordan-sports-betting/day-N/`. Content-creator at `content-creator/day-N/`. Both already in place from earlier work.
-
-## Superseded (kept for memory)
-- ~~Subdomain-per-course (Phase G-K original)~~ — replaced by path-per-student.
-- ~~Per-course Pages project + R2 bucket~~ — single project + bucket now.
-- ~~VITE_COURSE_SLUG / VITE_STUDENT_NAME / VITE_COURSE_TITLE env vars~~ — config moves into `src/students.js`.
-- ~~GITHUB_PATH_PREFIX env var~~ — comes from per-course `mirrorPrefix` field at runtime.
-- ~~`deploy:jordan` / `deploy:cc` scripts~~ — collapse to `deploy`.
+Do NOT touch interview/_usher/showcase. No new deps (kept).

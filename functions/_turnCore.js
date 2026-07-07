@@ -20,11 +20,57 @@ const SUGGESTED_RE = /\[SUGGESTED_REPLIES:([^\]]*)\]/i
 const TICK_RE = /\[TICK:([^\]]*)\]/gi
 const TABLE_RE = /\[TABLE:\s*([^:\]]+?)\s*::\s*([^\]]*)\]/gi
 const SHOW_RE = /\[SHOW:\s*([^\]]+?)\s*\]/gi
+// Runtime figure value injection (grammar reserved in fable-collab-figures-
+// review.md §2.4, promoted forward): [FIG: <baseKey> :: id=value, id2=value2].
+// Same key::payload shape as TABLE_RE; the payload is a comma-separated list of
+// id=value pairs (quoted-value tolerant — see parseFigValuePairs).
+const FIG_RE = /\[FIG:\s*([^:\]]+?)\s*::\s*([^\]]*)\]/gi
+// Stagehand request (Phase T.4f Tier 3): [STAGE: <one-line request>] — asks the
+// engine to build a figure/deck spec that doesn't exist in the authored
+// canvasProgram. Single-line by construction (no '\n' in the capture) so a
+// runaway model can't smuggle a multi-paragraph "request" through it.
+const STAGE_RE = /\[STAGE:\s*([^\]\n]+?)\s*\]/gi
 // Director → artifact write (block form, REPLACE semantics). Unterminated blocks
 // (max_tokens cutoff) are stripped from cleanText AND discarded — never apply a
 // half-memo, never leak the raw block into the settle frame.
 const ARTIFACT_RE = /\[ARTIFACT:\s*([^\]\n]+?)\s*\]\n?([\s\S]*?)\[\/ARTIFACT\]/g
 const ARTIFACT_UNTERMINATED_RE = /\[ARTIFACT:[^\]\n]*\][\s\S]*$/
+
+// Split a [FIG:] payload into id=value pairs. Comma-separated, but a value may
+// be quoted (straight or curly quotes) to protect embedded commas — quote
+// characters are stripped, never treated as part of the value. Values are
+// always returned as STRINGS, verbatim (never parsed as numbers).
+const FIG_QUOTES = '"“”'
+function splitFigPairs(raw) {
+  const parts = []
+  let cur = ''
+  let quoted = false
+  for (const ch of raw) {
+    if (FIG_QUOTES.includes(ch)) {
+      quoted = !quoted
+      continue
+    }
+    if (ch === ',' && !quoted) {
+      parts.push(cur)
+      cur = ''
+      continue
+    }
+    cur += ch
+  }
+  if (cur.trim()) parts.push(cur)
+  return parts
+}
+function parseFigValuePairs(raw) {
+  const values = {}
+  for (const part of splitFigPairs(raw)) {
+    const eq = part.indexOf('=')
+    if (eq === -1) continue
+    const id = part.slice(0, eq).trim()
+    const val = part.slice(eq + 1).trim()
+    if (id && val) values[id] = val
+  }
+  return values
+}
 
 // Tick forms:
 //   [TICK: id]                — bare tick (comma-separated ids allowed)
@@ -68,6 +114,22 @@ export function parseTurn(text) {
   let show = null
   for (const m of text.matchAll(SHOW_RE)) show = m[1].trim() || show
 
+  // Stagehand: the LAST [STAGE:] in the turn wins (a model emitting more than
+  // one in a turn is noise, not intent — same "last wins" rule as [SHOW:]).
+  let stage = null
+  for (const m of text.matchAll(STAGE_RE)) stage = m[1].trim() || stage
+
+  // Figure value injection: [FIG: <baseKey> :: id=value, ...]. Multiple tags
+  // for the same key are kept as separate entries (applied in order — later
+  // entries win on a repeated id); id validation against the figure spec
+  // happens at apply time (engine), not here.
+  const figValues = []
+  for (const m of text.matchAll(FIG_RE)) {
+    const key = m[1].trim()
+    const values = parseFigValuePairs(m[2])
+    if (key && Object.keys(values).length) figValues.push({ key, values })
+  }
+
   // Artifact writes: last block wins per id, capped at 2 ids per turn.
   const writesById = new Map()
   for (const m of text.matchAll(ARTIFACT_RE)) {
@@ -84,10 +146,12 @@ export function parseTurn(text) {
     .replace(TICK_RE, '')
     .replace(TABLE_RE, '')
     .replace(SHOW_RE, '')
+    .replace(FIG_RE, '')
+    .replace(STAGE_RE, '')
     .replace(SUGGESTED_RE, '')
     .trim()
 
-  return { cleanText, ticks, evidence, tables, suggestions, show, artifactWrites, artifactTruncated }
+  return { cleanText, ticks, evidence, tables, suggestions, show, stage, artifactWrites, artifactTruncated, figValues }
 }
 
 // Apply a parsed turn's ticks/tables to the session (server-authoritative).
@@ -135,7 +199,7 @@ export function applyTurnEffects(session, inv, { ticks, tables, evidence = {} },
 
 // --- Mid-stream control-tag guard ---
 // The control-tag STARTS we must never let flash on screen mid-stream.
-const CONTROL_STARTS = ['[TICK:', '[TABLE:', '[SHOW:', '[ARTIFACT:', '[SUGGESTED_REPLIES:']
+const CONTROL_STARTS = ['[TICK:', '[TABLE:', '[SHOW:', '[ARTIFACT:', '[FIG:', '[STAGE:', '[SUGGESTED_REPLIES:']
 
 // Given the full accumulated model text so far, return the length prefix that
 // is SAFE to have emitted — i.e. everything up to the first byte that begins a

@@ -33,12 +33,16 @@ import {
   makeTickGuard,
   rejectedTicks,
   resolveCanvasChange,
+  applyFigureValues,
+  autoAdvanceShownFigureStep,
+  runStagehand,
   foldHistory,
   focusIdOf,
   maxTurnsFor,
   resolveChips,
   looksAnswerable,
   ensureNextAsk,
+  fallbackAsk,
   applyArtifactWrites,
   prepareOwnershipVerdicts,
   mirrorArtifacts,
@@ -101,6 +105,7 @@ export async function onRequestPost({ params, env, request }) {
 
   const focusBefore = focusIdOf(pack, session)
   const system = `${buildSessionSystemPrompt(pack, session.studentName)}\n\n${buildSessionEnvelope(session, pack, body?.canvasLiveState, body?.selection)}`
+  session.lastStageNote = null // one-shot — just folded into this turn's outgoing envelope
   const turnMessages = [...session.history, { role: 'user', content: message }]
 
   // Open the upstream BEFORE committing to a 200 SSE body so auth/credit errors
@@ -147,17 +152,6 @@ export async function onRequestPost({ params, env, request }) {
         // Turn settled — parse, apply (server-authoritative), persist.
         const parsed = parseTurn(full)
         let cleanText = parsed.cleanText
-
-        // Usher backstop (#11): a turn must never trail off with nothing to do.
-        // Any appended ask is streamed as a late delta so the client shows it.
-        let usherAsk = ''
-        if (!looksAnswerable(cleanText)) {
-          usherAsk = await ensureNextAsk(env, session, pack, cleanText)
-          if (usherAsk) {
-            cleanText += `\n\n${usherAsk}`
-            controller.enqueue(frame({ type: 'delta', text: `\n\n${usherAsk}` }))
-          }
-        }
 
         const turnNo = session.totalUserTurns + 1
 
@@ -209,6 +203,43 @@ export async function onRequestPost({ params, env, request }) {
         })
         session.rejectedTicks = rejectedTicks(pack, session, parsed.ticks, tickedBefore, parsed.evidence)
 
+        // Runtime [FIG:] value/addition injection (Phase T.5) — BEFORE canvas
+        // resolution so a same-turn value change on the showing figure is what
+        // resolveCanvasChange's values-hash check sees.
+        applyFigureValues(session, pack, parsed.figValues)
+
+        // FIX 1 (T.4g) — if a value just landed on the CURRENTLY-DISPLAYED
+        // figure/instance at a step later than what's shown, auto-advance it
+        // so the learner never has to ask for the canvas to catch up. Must run
+        // BEFORE resolveCanvasChange: it only sets the step figureState/
+        // figureInstances will report; the existing values-hash check is what
+        // actually emits the frame.
+        autoAdvanceShownFigureStep(pack, session, parsed.figValues)
+
+        // Stagehand (Phase T.4f Tier 3) — BEFORE canvas resolution so a
+        // successful build is [SHOW:]-able THIS turn. Success force-shows the
+        // new key (auto [SHOW:] semantics — overrides whatever the model may
+        // have also said, since the build IS the response to the request);
+        // failure leaves parsed.show as-is (never blanks the canvas) and queues
+        // a one-shot note for the NEXT turn's envelope.
+        if (parsed.stage) {
+          const stageResult = await runStagehand(env, pack, session, parsed.stage)
+          session.transcriptLog.push({
+            role: 'stage',
+            request: parsed.stage,
+            ok: stageResult.ok,
+            key: stageResult.key,
+            reason: stageResult.reason,
+            spec: stageResult.spec,
+            ts: new Date().toISOString(),
+          })
+          if (stageResult.ok) {
+            parsed.show = stageResult.key
+          } else {
+            session.lastStageNote = `Your last [STAGE:] request ("${parsed.stage}") failed: ${stageResult.reason}. Canvas stayed on what it was — try an authored target, an instance (#id), or compare() instead, or rephrase the request.`
+          }
+        }
+
         // Artifact frames BEFORE the canvas frame (the pane may not be on canvas).
         for (const a of artifactApplied) {
           const art = session.artifacts[a.id]
@@ -225,9 +256,24 @@ export async function onRequestPost({ params, env, request }) {
           )
         }
 
-        // 3-tier canvas: model [SHOW:] → new focus's default → keep current.
+        // 3-tier canvas: model [SHOW:] → new focus's default → keep current
+        // (extended, Phase T.5: a live [FIG:] value change on the CURRENTLY-shown
+        // figure still emits a frame even with no [SHOW:] this turn).
         const canvasDirective = resolveCanvasChange(pack, session, parsed.show, focusBefore)
         if (canvasDirective) controller.enqueue(frame({ type: 'canvas', directive: canvasDirective }))
+
+        // NEVER-ORPHAN GUARANTEE (#11): a turn must never trail off with nothing
+        // to do, and must never settle on literally EMPTY text (a tags-only
+        // turn). Usher backstop first (context-aware Haiku ask); if that also
+        // comes back '' (network failure, or nothing left open), a deterministic
+        // fallback — never a network call — guarantees non-empty output.
+        let usherAsk = ''
+        if (!cleanText || !looksAnswerable(cleanText)) {
+          usherAsk = (await ensureNextAsk(env, session, pack, cleanText)) || fallbackAsk(pack, session, canvasDirective)
+          const sep = cleanText ? '\n\n' : ''
+          controller.enqueue(frame({ type: 'delta', text: `${sep}${usherAsk}` }))
+          cleanText = `${cleanText}${sep}${usherAsk}`
+        }
 
         // Usher chips (#6): model tag → Haiku pass → deterministic extraction.
         const suggestions = await resolveChips(env, {
