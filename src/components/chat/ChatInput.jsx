@@ -36,10 +36,10 @@ export default function ChatInput({
   // While the text has no newline and is shorter than the shortest length that
   // has ever wrapped at this pane width, there is nothing to measure — skip all
   // layout work. wrapLen learns lazily and resets on resize.
-  const growRef = useRef({ raf: 0, h: 0, wrapLen: Infinity, oneLineH: 0 })
+  const growRef = useRef({ raf: 0, h: 0, safeLen: 0, oneLineH: 0 })
   useEffect(() => {
     const onResize = () => {
-      growRef.current.wrapLen = Infinity
+      growRef.current.safeLen = 0
       growRef.current.oneLineH = 0
     }
     window.addEventListener('resize', onResize)
@@ -49,8 +49,10 @@ export default function ChatInput({
     const ta = taRef.current
     if (!ta) return
     const g = growRef.current
-    const oneLiner = !draft.includes('\n') && draft.length < g.wrapLen
-    if (oneLiner && g.oneLineH && g.h === g.oneLineH) return // nothing can change
+    // Safe zone: single-line text no longer than any length already measured at
+    // one-line height cannot change height — skip all layout work.
+    const oneLiner = !draft.includes('\n')
+    if (oneLiner && g.oneLineH && g.h === g.oneLineH && draft.length <= g.safeLen) return
     cancelAnimationFrame(g.raf)
     g.raf = requestAnimationFrame(() => {
       ta.style.height = 'auto'
@@ -61,10 +63,10 @@ export default function ChatInput({
       if (h !== g.h) ta.style.overflowY = full > max ? 'auto' : 'hidden'
       g.h = h
       if (!g.oneLineH && !draft.includes('\n') && draft.length < 4) g.oneLineH = h
-      // Learn the wrap threshold: single-line text taller than the 1-line height
-      // means we wrapped — remember the shortest wrapping length seen.
-      if (!draft.includes('\n') && g.oneLineH && h > g.oneLineH) {
-        g.wrapLen = Math.min(g.wrapLen, draft.length)
+      // Learn forward: this length measured at one-line height → safe to skip
+      // for anything at or below it.
+      if (!draft.includes('\n') && g.oneLineH && h === g.oneLineH) {
+        g.safeLen = Math.max(g.safeLen, draft.length)
       }
     })
     return () => cancelAnimationFrame(g.raf)
