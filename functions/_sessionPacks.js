@@ -874,6 +874,12 @@ p{font-size:13.5px;line-height:1.5}
 .miss{color:#b91c1c;font-weight:600}.nail{color:#15803d;font-weight:600}
 </style>
 <nav><a href="#greenlight">Greenlight / Fidelity Youth</a><a href="#investopedia">Investopedia</a><a href="#finfluencers">Finfluencers</a><a href="#school">School</a><a href="#gap">The gap</a></nav>
+<div style="padding:8px 16px;background:#e6edf3;font-size:12.5px">
+  Real sites (open in a new tab — they don't allow embedding):
+  <a href="https://greenlight.com" target="_blank" rel="noopener">greenlight.com ↗</a> ·
+  <a href="https://www.fidelity.com/go/youth-account/overview" target="_blank" rel="noopener">Fidelity Youth ↗</a> ·
+  <a href="https://www.investopedia.com" target="_blank" rel="noopener">investopedia.com ↗</a>
+</div>
 <main>
 <h1>Teen investing — who's already in the space</h1>
 <p>Four player types. Click through each; for every player ask: <b>what do they nail, and what do they miss?</b></p>
