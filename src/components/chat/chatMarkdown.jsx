@@ -1,5 +1,32 @@
 import { useState } from 'react'
 
+// Copy that works OUTSIDE secure contexts too: navigator.clipboard is undefined
+// on plain http (jserver:8788) — fall back to a transient textarea + execCommand.
+export async function copyText(text) {
+  try {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    /* fall through */
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
+
 // Extract plain text from a React children tree (for copy-to-clipboard).
 function textOf(node) {
   if (node == null) return ''
@@ -13,12 +40,9 @@ function textOf(node) {
 function PreBlock({ children }) {
   const [copied, setCopied] = useState(false)
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(textOf(children).replace(/\n$/, ''))
+    if (await copyText(textOf(children).replace(/\n$/, ''))) {
       setCopied(true)
       setTimeout(() => setCopied(false), 1200)
-    } catch {
-      /* clipboard unavailable — no-op */
     }
   }
   return (

@@ -1,19 +1,16 @@
 import { memo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { CHAT_MD } from './chatMarkdown.jsx'
+import { CHAT_MD, copyText } from './chatMarkdown.jsx'
 
 // Small copy-to-clipboard affordance for a bubble. Sits below the bubble edge,
 // faint until hover/tap; flips to a check briefly on success.
 export function CopyButton({ text, className = '' }) {
   const [copied, setCopied] = useState(false)
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(text || '')
+    if (await copyText(text || '')) {
       setCopied(true)
       setTimeout(() => setCopied(false), 1200)
-    } catch {
-      /* clipboard unavailable (http, permissions) — silently no-op */
     }
   }
   return (
