@@ -27,13 +27,36 @@ export default function ChatInput({
     onSend(t)
   }
 
+  // Auto-grow WITHOUT a per-keystroke synchronous reflow: setting height:auto
+  // then reading scrollHeight forces the browser to lay out the whole (heavy)
+  // page inside the keystroke — the iPad typing lag. Instead: measure inside
+  // rAF (off the input latency path) and only when growth is even possible —
+  // same line count and shorter-or-equal text can't change height.
+  const growRef = useRef({ raf: 0, lines: -1, len: 0, h: 0 })
   useEffect(() => {
     const ta = taRef.current
     if (!ta) return
-    ta.style.height = 'auto'
-    const max = Math.round(window.innerHeight * 0.4)
-    ta.style.height = `${Math.min(ta.scrollHeight, max)}px`
-    ta.style.overflowY = ta.scrollHeight > max ? 'auto' : 'hidden'
+    const g = growRef.current
+    const lines = (draft.match(/\n/g) || []).length
+    const mayShrink = draft.length < g.len || lines < g.lines
+    const mayGrow = lines !== g.lines || draft.length > g.len
+    g.len = draft.length
+    if (lines === g.lines && !mayShrink && !mayGrow) return
+    g.lines = lines
+    cancelAnimationFrame(g.raf)
+    g.raf = requestAnimationFrame(() => {
+      ta.style.height = 'auto'
+      const max = Math.round(window.innerHeight * 0.4)
+      const h = Math.min(ta.scrollHeight, max)
+      if (h !== g.h) {
+        ta.style.height = `${h}px`
+        ta.style.overflowY = ta.scrollHeight > max ? 'auto' : 'hidden'
+        g.h = h
+      } else {
+        ta.style.height = `${g.h}px`
+      }
+    })
+    return () => cancelAnimationFrame(g.raf)
   }, [draft])
 
   function onKeyDown(e) {
