@@ -20,6 +20,14 @@ const MONO = '"JetBrains Mono", ui-monospace, monospace'
 // dependency). Used by `iconrow` figures and by deck split rows via <Glyph>.
 // Names are validated server-side: ICON_GLYPHS in _sessionPacks.js mirrors this
 // map — grow both together.
+// Human-format bare numbers inside figure values: standalone integer runs of
+// 4+ digits gain thousands separators (5000000 → 5,000,000). Only digit runs —
+// already-formatted strings ("$37,500/yr", "~30M") pass through untouched.
+export function fmtFigureValue(v) {
+  if (v == null) return v
+  return String(v).replace(/\d{4,}/g, (d) => Number(d).toLocaleString('en-US'))
+}
+
 export const GLYPHS = {
   ball: (
     <>
@@ -212,7 +220,7 @@ function ConcentricFigure({ spec, visible, entering }) {
               (() => {
                 const { main, paren } = splitAssumption(ring.value)
                 return (
-                  <ValueGroup id={ring.id} value={ring.value}>
+                  <ValueGroup id={ring.id} value={fmtFigureValue(ring.value)}>
                     <text x={CX} y={topY + 67} textAnchor="middle" fontFamily={MONO} fontWeight="700" fontSize="14" fill={INK}>
                       {main}
                     </text>
@@ -383,7 +391,7 @@ function FunnelFigure({ spec, visible, entering }) {
               (() => {
                 const { main, paren } = splitAssumption(band.value)
                 return (
-                  <ValueGroup id={band.id} value={band.value}>
+                  <ValueGroup id={band.id} value={fmtFigureValue(band.value)}>
                     <text x={CX} y={yc + 10} textAnchor="middle" fontFamily={MONO} fontWeight="700" fontSize="15" fill={INK}>
                       {main}
                     </text>
@@ -492,7 +500,7 @@ function BarsFigure({ spec, visible, entering }) {
             {(() => {
               const { main, paren } = splitAssumption(bar.value)
               return (
-                <ValueGroup id={bar.id} value={bar.value}>
+                <ValueGroup id={bar.id} value={fmtFigureValue(bar.value)}>
                   <text x={X0 + w + 12} y={barY + 18} fontFamily={MONO} fontWeight="700" fontSize="13" fill={INK}>
                     {main}
                   </text>
@@ -549,7 +557,7 @@ function MatrixFigure({ spec, visible, entering }) {
                 return (
                   <div key={cellKey} className="px-2 py-2.5 text-center border-t border-rule flex items-center justify-center">
                     {filled ? (
-                      <ValueGroup id={cellKey} value={raw} as="div">
+                      <ValueGroup id={cellKey} value={fmtFigureValue(raw)} as="div">
                         <div className="font-mono font-semibold text-[13px] text-ink">{main}</div>
                         {paren && <div className="font-sans text-[10px] text-muted mt-0.5">({paren})</div>}
                       </ValueGroup>

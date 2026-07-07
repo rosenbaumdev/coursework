@@ -498,6 +498,7 @@ Teaching rules:
   wrong by 100x means an assumption broke — find which one.
 
 Sizing rules — work the LIVE SCOREBOARD, not a document:
+- The boba example lives on figure.tamsamsom ONLY. The scoreboard columns are HIS three arcs — never park practice numbers there, and always name which arc a number belongs to before landing it.
 - His three arcs (translator, gear, community) sit as side-by-side columns on
   one scoreboard figure, TAM/SAM/SOM/Gap/Gut rows beneath each. This REPLACES
   working one memo document at a time: the scoreboard is the shared workspace

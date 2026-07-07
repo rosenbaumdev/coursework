@@ -288,7 +288,28 @@ export function applyFigureValues(session, pack, figValues) {
         continue
       }
       if (!validIds.has(id)) continue // unknown element id — dropped silently
-      cur[id] = String(val)
+      // STICKY RENAMES: a stored pipe value ("Label|sub[|glyph]") means this id
+      // was RENAMED — a later plain (sub-only) value must not silently revert
+      // the label; keep the rename head, swap only the sub.
+      const prevVal = cur[id]
+      const incoming = String(val)
+      if (prevVal != null && String(prevVal).includes('|') && !incoming.includes('|')) {
+        const head = String(prevVal).split('|')
+        cur[id] = [head[0], incoming, ...(head[2] ? [head[2]] : [])].join('|')
+      } else {
+        cur[id] = incoming
+      }
+      // IDENTITY PROPAGATION: a pipe-rename on element id X mirrors to every
+      // other figure whose spec has a col/item with the same id (slate rename →
+      // scoreboard column) — deterministic, no model round trip.
+      if (!instanceId && incoming.includes('|')) {
+        for (const [otherKey, otherEntry] of Object.entries(pack.canvasProgram || {})) {
+          if (otherKey === base || otherEntry.type !== 'figure') continue
+          const otherSpec = otherEntry.payload?.spec || {}
+          const shared = (otherSpec.cols || otherSpec.items || []).some((x) => x.id === id)
+          if (shared) (session.figureValues[otherKey] ||= {})[id] = incoming
+        }
+      }
     }
   }
 }
