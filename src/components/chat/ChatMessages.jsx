@@ -56,7 +56,15 @@ export default function ChatMessages({ messages, streamingLastEmpty, notice, tra
     <div
       ref={scrollRef}
       className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto"
-      style={{ contain: 'layout paint' }}
+      style={{
+        contain: 'layout paint',
+        // Chrome's scroll anchoring auto-adjusts scrollTop as the streaming
+        // bubble grows — its adjustments looked like USER scrolls to our
+        // takeover detector, killing the grow-up-then-freeze behavior on
+        // desktop (Safari has no scroll anchoring → iPad was fine). We are
+        // the only scroll writer here; the reader is the only other one.
+        overflowAnchor: 'none',
+      }}
     >
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col gap-4">
         {notice}
