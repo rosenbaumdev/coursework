@@ -222,11 +222,11 @@ function ConcentricFigure({ spec, visible, entering }) {
                 return (
                   <ValueGroup id={ring.id} value={fmtFigureValue(ring.value)}>
                     <text x={CX} y={topY + 67} textAnchor="middle" fontFamily={MONO} fontWeight="700" fontSize="14" fill={INK}>
-                      {main}
+                      {fmtFigureValue(main)}
                     </text>
                     {paren && (
                       <text x={CX} y={topY + 81} textAnchor="middle" fontFamily={SANS} fontSize="10.5" fill={MUTED}>
-                        ({paren})
+                        ({fmtFigureValue(paren)})
                       </text>
                     )}
                   </ValueGroup>
@@ -393,11 +393,11 @@ function FunnelFigure({ spec, visible, entering }) {
                 return (
                   <ValueGroup id={band.id} value={fmtFigureValue(band.value)}>
                     <text x={CX} y={yc + 10} textAnchor="middle" fontFamily={MONO} fontWeight="700" fontSize="15" fill={INK}>
-                      {main}
+                      {fmtFigureValue(main)}
                     </text>
                     {paren && (
                       <text x={CX} y={yc + 25} textAnchor="middle" fontFamily={SANS} fontSize="10.5" fill={MUTED}>
-                        ({paren})
+                        ({fmtFigureValue(paren)})
                       </text>
                     )}
                   </ValueGroup>
@@ -502,11 +502,11 @@ function BarsFigure({ spec, visible, entering }) {
               return (
                 <ValueGroup id={bar.id} value={fmtFigureValue(bar.value)}>
                   <text x={X0 + w + 12} y={barY + 18} fontFamily={MONO} fontWeight="700" fontSize="13" fill={INK}>
-                    {main}
+                    {fmtFigureValue(main)}
                   </text>
                   {paren && (
                     <text x={X0 + w + 12} y={barY + 40} fontFamily={SANS} fontSize="10.5" fill={MUTED}>
-                      ({paren})
+                      ({fmtFigureValue(paren)})
                     </text>
                   )}
                 </ValueGroup>
@@ -558,8 +558,8 @@ function MatrixFigure({ spec, visible, entering }) {
                   <div key={cellKey} className="px-2 py-2.5 text-center border-t border-rule flex items-center justify-center">
                     {filled ? (
                       <ValueGroup id={cellKey} value={fmtFigureValue(raw)} as="div">
-                        <div className="font-mono font-semibold text-[13px] text-ink">{main}</div>
-                        {paren && <div className="font-sans text-[10px] text-muted mt-0.5">({paren})</div>}
+                        <div className="font-mono font-semibold text-[13px] text-ink">{fmtFigureValue(main)}</div>
+                        {paren && <div className="font-sans text-[10px] text-muted mt-0.5">({fmtFigureValue(paren)})</div>}
                       </ValueGroup>
                     ) : (
                       <span className="font-mono text-[13px] text-muted opacity-40">—</span>
