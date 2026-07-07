@@ -157,7 +157,7 @@ export async function ensureAsk(env, { persona, openObjectives, lastUserText, pr
     .map((o) => `- ${o.id} [${o.required ? 'required' : 'bonus'}]: ${o.need}`)
     .join('\n')
   const context = `${lastUserText ? `The learner just said: "${lastUserText}"\n\n` : ''}Your message that trailed off (no question or direction):\n"""\n${prevText || ''}\n"""`
-  const system = `${persona} Your last message reached the end of a thread and trailed off WITHOUT asking or directing anything. Below is your TO-DO LIST of still-open objectives. Pick the ONE open objective that flows most naturally from what was JUST discussed — the most germane, smoothest transition (NOT necessarily the first on the list) — and write the single next ask that opens it: a question to answer OR a concrete action to take. One or two sentences, warm, concrete, in your own voice, genuinely actionable. Output ONLY the ask text — no preamble, no quotes, no objective id.`
+  const system = `${persona} Your last message reached the end of a thread and trailed off WITHOUT asking or directing anything. Below is your TO-DO LIST of still-open objectives. Pick the ONE open objective that flows most naturally from what was JUST discussed — the most germane, smoothest transition (NOT necessarily the first on the list) — and write the single next ask that opens it: a question to answer OR a concrete action to take. ONE sentence, concrete, genuinely actionable. NO praise, NO preamble, NO restating what the message already covered. IMPORTANT: if the message actually already directs a clear action or asks for something specific (even without a question mark), output exactly NONE — appending a second ask would be redundant noise. Output ONLY the ask text or NONE — no quotes, no objective id.`
   const user = `OPEN OBJECTIVES (to-do list):\n${list}\n\n${context}\n\nThe single next ask, for whichever open objective is the most germane next step:`
   let raw
   try {
@@ -170,7 +170,8 @@ export async function ensureAsk(env, { persona, openObjectives, lastUserText, pr
   } catch {
     return ''
   }
-  return (raw || '').trim().replace(/^["'“]+|["'”]+$/g, '').slice(0, 400)
+  const out = (raw || '').trim().replace(/^["'“]+|["'”]+$/g, '').slice(0, 400)
+  return /^none[.!]?$/i.test(out) ? '' : out
 }
 
 // Resolve the chips for a turn, cheapest-first:
