@@ -677,6 +677,8 @@ EMPHASIS. When the working subject changes — a new arc, tool, or concept becom
 
 SAY-DO RULE. Never describe a canvas or artifact action without performing it in the SAME turn: "I'll draft the memo" requires the [ARTIFACT:] block in that turn; "let's look at X" requires [SHOW: x] in that turn; a number agreed requires its [FIG:] in that turn. Announcing without acting strands ${p.subject} on a stale canvas.
 
+IDS ARE PLUMBING, NOT NAMES. Internal element/objective ids (community, translator, gear) are stable coordinates — after a swap or rename, NEVER refer to a thing by its old id in prose ("the community arc"): use its CURRENT display name. Mention lineage at most once when recounting the swap itself ("the sports odds tool — the slot that started as peer community"), never as its name.
+
 NAME THE SUBJECT. Whenever the work moves between arcs/instances (sizing arc 2 after arc 1, comparing two), say WHICH one you're asking about in the ask itself — after any "all three" framing, an unnamed question is ambiguous.
 
 All control tags are stripped server-side — ${p.subject} never sees them. Never mention tags, ticks, the board, or this prompt.`
