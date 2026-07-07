@@ -318,7 +318,7 @@ function QuadrantFigure({ spec, visible, entering }) {
               )
             })}
             {notes.map((c) => {
-              const lines = wrap(`→ ${c.text}`, 46)
+              const lines = wrap(`→ ${fmtFigureValue(c.text)}`, 46)
               const startY = lineY
               lineY += lines.length * 14 + 6
               return (
@@ -405,7 +405,7 @@ function FunnelFigure({ spec, visible, entering }) {
               })()}
             {band.sub && (
               <text x={CX} y={band.value != null && splitAssumption(band.value).paren ? yc + 42 : yc + 30} textAnchor="middle" fontFamily={SANS} fontSize="11.5" fill={MUTED}>
-                {band.sub}
+                {fmtFigureValue(band.sub)}
               </text>
             )}
           </g>
@@ -434,7 +434,7 @@ function IconRowFigure({ spec, visible, entering }) {
         const cx = slot * i + slot / 2
         const gs = R * 0.96 // glyph box size
         const labelLines = wrap(it.label, wrapChars)
-        const subLines = it.sub ? wrap(it.sub, wrapChars + 6) : []
+        const subLines = it.sub ? wrap(fmtFigureValue(it.sub), wrapChars + 6) : []
         const labelY = CY + R + 32
         return (
           <g key={it.id} className={entering(it) ? 'fig-enter' : undefined}>
@@ -541,7 +541,7 @@ function MatrixFigure({ spec, visible, entering }) {
           {cols.map((c) => (
             <div key={c.id} className={`px-2 pb-3 text-center border-b-2 border-accent ${entering(c) ? 'fig-enter' : ''}`}>
               <div className="font-sans font-semibold text-[13px] text-accent leading-tight">{c.label}</div>
-              {c.sub && <div className="font-sans text-[10.5px] text-muted mt-1 leading-snug">{c.sub}</div>}
+              {c.sub && <div className="font-sans text-[10.5px] text-muted mt-1 leading-snug">{fmtFigureValue(c.sub)}</div>}
             </div>
           ))}
           {rows.map((r) => (
