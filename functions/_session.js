@@ -710,6 +710,17 @@ export function buildSessionEnvelope(session, pack, liveState, selection) {
     lines.push('', `CURRENT CONTENT of ${focus.id} (clipped):`, '```', session.artifacts[focus.id].content.slice(0, 2500), '```')
   }
 
+  // Pacing drift guard: a long run of turns with zero ticks usually means the
+  // conversation advanced but the board didn't — which also stalls tier-2
+  // canvas defaults. Deterministic reminder, no model judgment needed.
+  const lastTick = Math.max(0, ...Object.values(session.inventoryState).map((v) => v.tickedAtTurn || 0))
+  if (turnNo - lastTick >= 5 && focus) {
+    lines.push(
+      '',
+      `BOARD CHECK: no box has been ticked in ${turnNo - lastTick} turns. If objectives were genuinely covered in that span, tick them NOW — a stale board stalls the canvas and misstates ${pack.pronouns.possessive} progress.`
+    )
+  }
+
   if (session.artifactTruncated) {
     lines.push('', 'ARTIFACT WRITE TRUNCATED last turn — your [ARTIFACT:] block got cut off and was discarded. Redraft, shorter.')
   }
@@ -764,6 +775,9 @@ export function buildSessionEnvelope(session, pack, liveState, selection) {
   const nudgeCandidates = []
   if (focus && pack.canvasDefaults?.[focus.id]) nudgeCandidates.push(pack.canvasDefaults[focus.id])
   if (session.canvasTarget) nudgeCandidates.push(session.canvasTarget)
+  // In-progress figures (values already landing) never go silent, even when
+  // neither focused nor displayed — momentum keeps them filling.
+  for (const k of Object.keys(session.figureValues || {})) nudgeCandidates.push(k)
   for (const cand of nudgeCandidates) {
     const dir = resolveFigureDir(pack, session, cand)
     if (dir?.type !== 'figure') continue
