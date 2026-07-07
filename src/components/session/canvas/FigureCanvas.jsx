@@ -21,6 +21,24 @@ const MONO = '"JetBrains Mono", ui-monospace, monospace'
 // Names are validated server-side: ICON_GLYPHS in _sessionPacks.js mirrors this
 // map — grow both together.
 export const GLYPHS = {
+  ball: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 3a13 13 0 0 0 0 18M3.5 9.5a13 13 0 0 0 17 0M3.5 14.5a13 13 0 0 1 17 0" />
+    </>
+  ),
+  trophy: (
+    <>
+      <path d="M8 4h8v5a4 4 0 0 1-8 0V4z" />
+      <path d="M8 5H5a3 3 0 0 0 3 4M16 5h3a3 3 0 0 1-3 4M12 13v4M8.5 20h7M10 17h4" />
+    </>
+  ),
+  dice: (
+    <>
+      <rect x="4" y="4" width="16" height="16" rx="3" />
+      <circle cx="9" cy="9" r="1" /><circle cx="15" cy="15" r="1" /><circle cx="15" cy="9" r="1" /><circle cx="9" cy="15" r="1" />
+    </>
+  ),
   'circle-dollar': (
     <>
       <circle cx="12" cy="12" r="9" />

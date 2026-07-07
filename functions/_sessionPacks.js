@@ -1313,8 +1313,15 @@ export function mergeFigureValues(kind, spec, values, added) {
       if (!it.id || v[it.id] == null) return it
       // "New Label|new sub" RENAMES the item (arc swap); a plain value is sub-only.
       const val = String(v[it.id])
-      const bar = val.indexOf('|')
-      if (bar !== -1) return { ...it, label: val.slice(0, bar).trim(), sub: val.slice(bar + 1).trim() }
+      if (val.includes('|')) {
+        const [label, sub, glyph] = val.split('|').map((x) => x.trim())
+        return {
+          ...it,
+          label: label || it.label,
+          sub: sub != null ? sub : it.sub,
+          ...(glyph && ICON_GLYPHS.includes(glyph) ? { glyph } : {}),
+        }
+      }
       return { ...it, sub: val }
     })
     if (added && added.length) {
@@ -1512,10 +1519,8 @@ const CANVAS_TYPES = new Set(['reading', 'deck', 'video', 'image', 'browser', 't
 export const FIGURE_KINDS = new Set(['concentric', 'quadrant', 'funnel', 'iconrow', 'bars', 'matrix'])
 // Mirrors GLYPHS in FigureCanvas.jsx — the validator's half of the glyph map.
 // Adding a glyph: draw it there, name it here.
-export const ICON_GLYPHS = new Set([
-  'circle-dollar', 'phone', 'cart', 'people', 'chart', 'clock',
-  'video', 'wrench', 'mask', 'tag', 'spark', 'grid',
-])
+export const ICON_GLYPHS = new Set(['ball', 'trophy', 'dice', 'circle-dollar', 'phone', 'cart', 'people', 'chart', 'clock',
+  'video', 'wrench', 'mask', 'tag', 'spark', 'grid',])
 const ID_RE = /^[a-z0-9][a-z0-9.\-]*$/i // no commas (TICK comma-split) or ':' ('::' evidence delimiter)
 // matrix col/row id charset — deliberately excludes '.' (unlike ID_RE above):
 // a [FIG:] cell key joins "colId.rowId" on the dot, so a dot INSIDE either id
