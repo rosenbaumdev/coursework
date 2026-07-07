@@ -32,28 +32,39 @@ export default function ChatInput({
   // page inside the keystroke — the iPad typing lag. Instead: measure inside
   // rAF (off the input latency path) and only when growth is even possible —
   // same line count and shorter-or-equal text can't change height.
-  const growRef = useRef({ raf: 0, lines: -1, len: 0, h: 0 })
+  // Zero-layout fast path (100cr fix 3): most keystrokes are single-line prose.
+  // While the text has no newline and is shorter than the shortest length that
+  // has ever wrapped at this pane width, there is nothing to measure — skip all
+  // layout work. wrapLen learns lazily and resets on resize.
+  const growRef = useRef({ raf: 0, h: 0, wrapLen: Infinity, oneLineH: 0 })
+  useEffect(() => {
+    const onResize = () => {
+      growRef.current.wrapLen = Infinity
+      growRef.current.oneLineH = 0
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
   useEffect(() => {
     const ta = taRef.current
     if (!ta) return
     const g = growRef.current
-    const lines = (draft.match(/\n/g) || []).length
-    const mayShrink = draft.length < g.len || lines < g.lines
-    const mayGrow = lines !== g.lines || draft.length > g.len
-    g.len = draft.length
-    if (lines === g.lines && !mayShrink && !mayGrow) return
-    g.lines = lines
+    const oneLiner = !draft.includes('\n') && draft.length < g.wrapLen
+    if (oneLiner && g.oneLineH && g.h === g.oneLineH) return // nothing can change
     cancelAnimationFrame(g.raf)
     g.raf = requestAnimationFrame(() => {
       ta.style.height = 'auto'
       const max = Math.round(window.innerHeight * 0.4)
-      const h = Math.min(ta.scrollHeight, max)
-      if (h !== g.h) {
-        ta.style.height = `${h}px`
-        ta.style.overflowY = ta.scrollHeight > max ? 'auto' : 'hidden'
-        g.h = h
-      } else {
-        ta.style.height = `${g.h}px`
+      const full = ta.scrollHeight
+      const h = Math.min(full, max)
+      ta.style.height = `${h}px`
+      if (h !== g.h) ta.style.overflowY = full > max ? 'auto' : 'hidden'
+      g.h = h
+      if (!g.oneLineH && !draft.includes('\n') && draft.length < 4) g.oneLineH = h
+      // Learn the wrap threshold: single-line text taller than the 1-line height
+      // means we wrapped — remember the shortest wrapping length seen.
+      if (!draft.includes('\n') && g.oneLineH && h > g.oneLineH) {
+        g.wrapLen = Math.min(g.wrapLen, draft.length)
       }
     })
     return () => cancelAnimationFrame(g.raf)

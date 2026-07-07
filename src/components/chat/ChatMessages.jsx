@@ -53,7 +53,11 @@ export default function ChatMessages({ messages, streamingLastEmpty, notice, tra
   }, [messages, streamingLastEmpty])
 
   return (
-    <div ref={scrollRef} className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto">
+    <div
+      ref={scrollRef}
+      className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto"
+      style={{ contain: 'layout paint' }}
+    >
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col gap-4">
         {notice}
         {messages.map((m, i) => (
