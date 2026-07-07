@@ -85,7 +85,7 @@ export function deriveChips(text) {
 // 2-4 tappable options ONLY when the question genuinely has a small closed answer
 // set — otherwise []. No hardcoded scales; it judges the real question. Defensive
 // JSON parse; any failure → [] (caller falls back to deriveChips).
-export async function suggestChips(env, questionText, studentName) {
+export async function suggestChips(env, questionText, studentName, { strict = false } = {}) {
   const q = (questionText || '').trim()
   if (!q) return []
 
@@ -95,7 +95,9 @@ RETURN CHIPS whenever the question contains a clear, closed set of natural answe
 
 RETURN [] only when there is NO closed choice — a purely open prompt whose honest answer is a story, feeling, opinion, number, or description: "say more", "tell me about…", "walk me through your numbers", "what lights you up", "how did that feel". Two open topics joined by "or" ("tell me about the game or the site") is NOT a closed choice → [].
 
-RULES: 2-4 chips; each 1-4 words; compress long phrasing into a short tap ("take apart because it broke and you wanted to fix it" → "Fix what broke"); the student's casual first-person voice; never invent options the question didn't imply. Output ONLY a JSON array of strings — e.g. ["Know it","Kind of","No idea"] or [] — nothing else.`
+${strict ? `STRICT MODE (lesson): a chip must be a COMPLETE answer to everything the message asks. If fully answering requires more than tapping one option — a number AND a reason, a choice AND an explanation, any "and" joining two asks, or several sub-questions — return []. Partial-answer chips let the learner skip work.
+
+` : ''}RULES: 2-4 chips; each 1-4 words; compress long phrasing into a short tap ("take apart because it broke and you wanted to fix it" → "Fix what broke"); the student's casual first-person voice; never invent options the question didn't imply. Output ONLY a JSON array of strings — e.g. ["Know it","Kind of","No idea"] or [] — nothing else.`
 
   const user = `Question asked to ${studentName || 'the student'}:\n"""\n${q}\n"""\n\nChips as a JSON array (or [] if not multichoice-appropriate):`
 
@@ -185,7 +187,7 @@ export async function resolveChips(env, { tagSuggestions, cleanText, studentName
   // (The interview keeps chip-the-closed-part behavior: capture ≠ teaching.)
   if (suppressMultiQuestion && ((cleanText || '').match(/\?/g) || []).length >= 2) return []
   if (tagSuggestions && tagSuggestions.length) return tagSuggestions
-  const viaHaiku = await suggestChips(env, cleanText, studentName)
+  const viaHaiku = await suggestChips(env, cleanText, studentName, { strict: suppressMultiQuestion })
   if (viaHaiku.length) return viaHaiku
   return deriveChips(cleanText)
 }
