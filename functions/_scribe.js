@@ -74,6 +74,16 @@ function candidateKeys(pack, session, focus) {
   if (focus && pack.canvasDefaults?.[focus.id]) keys.push(pack.canvasDefaults[focus.id])
   if (session.canvasTarget) keys.push(session.canvasTarget)
   for (const k of Object.keys(session.figureValues || {})) keys.push(k)
+  // EVERY authored figure is in play (pilot: TAM numbers were being agreed while
+  // the tamsamsom figure was neither displayed nor focus-mapped — focus lag gave
+  // every backstop the same blind spot). Days have a handful of figures; the
+  // prefilter still gates the network call.
+  for (const [k, entry] of Object.entries(pack.canvasProgram || {})) {
+    if (entry.type === 'figure') keys.push(k)
+  }
+  for (const [k, entry] of Object.entries(session.dynamicProgram || {})) {
+    if (entry.type === 'figure') keys.push(k)
+  }
   return [...new Set(keys)]
 }
 

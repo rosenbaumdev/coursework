@@ -236,6 +236,16 @@ export async function onRequestPost({ params, env, request }) {
             figValues: scribeResult.figValues,
             ts: new Date().toISOString(),
           })
+          // Values landed on a figure that isn't on canvas and the Director
+          // gave no [SHOW:] → surface it. Client renders this as a
+          // "Continue to <title> →" pill (pending-swap), never a yank.
+          if (!parsed.show) {
+            const receiving = scribeResult.figValues[0]?.key
+            const displayedBase = (session.canvasTarget || '').split('@')[0]
+            if (receiving && receiving.split('@')[0] !== displayedBase) {
+              parsed.show = receiving
+            }
+          }
         }
 
         // Stagehand (Phase T.4f Tier 3) — BEFORE canvas resolution so a
