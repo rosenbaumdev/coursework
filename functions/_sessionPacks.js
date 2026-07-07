@@ -903,7 +903,16 @@ p{font-size:13.5px;line-height:1.5}
 <span class="miss">Misses:</span> everything else — content, timing, relevance.</p></section>
 <section id="gap"><b class="tag">THE GAP</b><h3>Simple + trustworthy + actually for teens</h3>
 <p>Nobody holds all three. Parent-gated apps are trustworthy but not for teens. Content sites are trustworthy but not simple. Finfluencers are for teens but not trustworthy. School is none of the above, consistently.</p></section>
-</main>`,
+</main>
+<script>
+document.addEventListener('click', function (e) {
+  var a = e.target.closest('a[href^="#"]')
+  if (!a) return
+  e.preventDefault()
+  var el = document.getElementById(a.getAttribute('href').slice(1))
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+})
+</script>`,
       },
     },
     // Research-first (see RESEARCH LOG above): the strongest SWOT templates

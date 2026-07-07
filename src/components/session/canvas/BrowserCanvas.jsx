@@ -133,7 +133,7 @@ export default function BrowserCanvas({ payload, onLiveState }) {
               key={`html-${index}-${reloadKey}`}
               title="browser"
               srcDoc={current.value}
-              sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+              sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts"
               className="w-full h-full border-0"
             />
           ) : (
