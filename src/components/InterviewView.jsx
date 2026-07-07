@@ -19,7 +19,6 @@ export default function InterviewView() {
   const [phase, setPhase] = useState('loading') // loading | active | done | already | error
   const [errorMsg, setErrorMsg] = useState('')
   const [sending, setSending] = useState(false)
-  const [draft, setDraft] = useState('')
 
   const startedRef = useRef(false)
 
@@ -57,10 +56,9 @@ export default function InterviewView() {
   }, [student, studentSlug])
 
   async function send(textArg) {
-    const text = (textArg ?? draft).trim()
+    const text = (textArg ?? '').trim()
     if (!text || sending || phase !== 'active') return
-    setDraft('')
-    setSuggestions([])
+        setSuggestions([])
     // Add the student turn + an empty assistant bubble the stream fills in.
     setMessages((m) => [...m, { role: 'user', content: text }, { role: 'assistant', content: '' }])
     setSending(true)
@@ -197,8 +195,6 @@ export default function InterviewView() {
       {phase === 'active' && (
         <ChatInput
           suggestions={suggestions}
-          draft={draft}
-          onDraft={setDraft}
           onSend={(text) => send(text)}
           disabled={sending}
         />

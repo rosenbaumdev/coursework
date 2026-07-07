@@ -35,7 +35,6 @@ export default function SessionView() {
   const student = getStudent(studentSlug)
   const studentName = student?.name
 
-  const [draft, setDraft] = useState('')
   const [selecting, setSelecting] = useState(false)
   const [pendingSelection, setPendingSelection] = useState(null)
   // T.4e: browsing an older directive from history (null = viewing current/live).
@@ -269,7 +268,6 @@ export default function SessionView() {
     const t = (text || '').trim()
     if (!t) return
     send(t)
-    setDraft('')
   }
   function showCanvasTab() {
     setActiveTab('canvas')
@@ -399,8 +397,6 @@ export default function SessionView() {
       {phase === 'active' && (
         <ChatInput
           suggestions={suggestions}
-          draft={draft}
-          onDraft={setDraft}
           onSend={onSend}
           disabled={sending}
           attachment={pendingSelection}

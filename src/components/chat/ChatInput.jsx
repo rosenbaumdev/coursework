@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 // Composer: suggested-reply chips (tap to send) + a textarea (Enter sends,
 // Shift+Enter newlines) + Send button. Controlled — parent owns `draft` and
@@ -8,14 +8,24 @@ import { useEffect, useRef } from 'react'
 // keeping the bottom bar minimal while allowing long entries.
 export default function ChatInput({
   suggestions = [],
-  draft,
-  onDraft,
   onSend,
   disabled,
   attachment,
   onClearAttachment,
 }) {
+  // Draft lives HERE, not in the page parent: on iPad both panes are mounted and
+  // a parent-owned draft made every keystroke re-render the whole tree (all
+  // bubbles' markdown + the canvas SVG) — visible typing lag. Local state keeps
+  // keystrokes composer-only; send() clears locally and hands the text up.
+  const [draft, setDraft] = useState('')
   const taRef = useRef(null)
+
+  function fire(text) {
+    const t = (text ?? draft).trim()
+    if (!t || disabled) return
+    setDraft('')
+    onSend(t)
+  }
 
   useEffect(() => {
     const ta = taRef.current
@@ -29,7 +39,7 @@ export default function ChatInput({
   function onKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      if (draft.trim() && !disabled) onSend(draft)
+      fire()
     }
   }
 
@@ -87,7 +97,7 @@ export default function ChatInput({
               <button
                 key={i}
                 type="button"
-                onClick={() => onSend(s)}
+                onClick={() => fire(s)}
                 className="rounded-full border border-accent/40 bg-accent/[0.04] px-3.5 py-1.5 text-[13px] font-medium text-accent hover:bg-accent/10 active:scale-[0.98] transition"
               >
                 {s}
@@ -100,14 +110,14 @@ export default function ChatInput({
             ref={taRef}
             rows={1}
             value={draft}
-            onChange={(e) => onDraft(e.target.value)}
+            onChange={(e) => setDraft(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="Type your answer…"
             className="flex-1 min-w-0 resize-none rounded-xl border border-rule bg-paper px-4 py-3 text-base text-ink placeholder:text-muted focus:outline-none focus:border-accent leading-relaxed"
           />
           <button
             type="button"
-            onClick={() => onSend(draft)}
+            onClick={() => fire()}
             disabled={disabled || !draft.trim()}
             className="rounded-xl bg-accent px-5 py-3 text-sm font-semibold text-white disabled:opacity-40"
           >

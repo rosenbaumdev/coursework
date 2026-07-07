@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CHAT_MD } from './chatMarkdown.jsx'
@@ -32,7 +32,7 @@ export function CopyButton({ text, className = '' }) {
 // Coach/assistant is left-aligned, inset, markdown-rendered. An empty assistant
 // bubble with `streaming` shows a pulsing caret while the stream fills it in.
 // Settled bubbles carry a faint copy control (#13).
-export default function Bubble({ role, text, streaming }) {
+function Bubble({ role, text, streaming }) {
   const isStudent = role === 'user'
   if (isStudent) {
     return (
@@ -61,3 +61,7 @@ export default function Bubble({ role, text, streaming }) {
     </div>
   )
 }
+
+// Memoized: during streaming only the last bubble's text changes — the rest
+// must not re-parse their markdown every delta (or on any parent re-render).
+export default memo(Bubble)
