@@ -285,3 +285,63 @@ Theater trio: Director decides, STAGEHAND builds, Usher lands the turn.
       clean (434KB/135KB gzip, +0 deps).
 
 Do NOT touch interview/_usher/showcase. No new deps (kept).
+
+## Phase T.4h — `matrix` figure kind + live SIZING SCOREBOARD (Day 1 rewrite) — COMPLETE (2026-07-06)
+Owner design request (live pilot feedback): replace the document-first sizing
+flow with a live SIDE-BY-SIDE SCOREBOARD — arcs as columns, TAM/SAM/SOM/Gap/Gut
+rows filling in via `[FIG:]` as numbers are agreed in chat; memos become
+Director-drafted consolidations FROM the scoreboard that the learner edits (no
+retyping). Plan (per CLAUDE.md plan threshold — 4+ files):
+
+- [x] **New figure kind `matrix`** (`functions/_sessionPacks.js`): spec
+   `{ cols: [{id,label,sub?,step?}], rows: [{id,label}], cells?: {"colId.rowId":
+   value}, steps? }`. Add to `FIGURE_KINDS`; extend `figureElementIds` (cross
+   product `colId.rowId`), `mergeFigureValues` (cells object merge — new values
+   overlay `spec.cells`), `unfilledFigureElementIds` (any col.row id with no
+   cell value), `validateFigureSpec` (cols 2-4, rows 1-8, col label ≤24, cell
+   value ≤60, cell keys must reference real col/row ids, new `MATRIX_ID_RE`
+   forbidding dots in col/row ids since cell keys join on the dot). Audited: NO
+   changes needed in `_session.js` or `_turnCore.js` — `figureElementIds`/
+   `unfilledFigureElementIds`/`mergeFigureValues`/`resolveShowTarget`/envelope
+   nudge/system-prompt targets line are all already kind-generic; `[FIG:]`
+   parsing splits on the FIRST `=`, tolerating dotted ids. Also add `matrix` to
+   the Stagehand `STAGE_SCHEMA_SUMMARY` doc-string in `_session.js` (Stagehand
+   already accepts any `FIGURE_KINDS` member via `validateFigureSpec`; only the
+   prompt's shape description needed the new kind spelled out).
+- [x] **Renderer** (`src/components/session/canvas/FigureCanvas.jsx`): new
+   `MatrixFigure` — HTML grid (not SVG; real DOM text beats wrapped SVG
+   `<text>` for this much prose), col headers (label + sub) across the top,
+   row labels down the left, cell values center. Unfilled cell → muted em-dash.
+   Generalize `ValueGroup` to accept `as` (default `'g'`, matrix passes `'div'`)
+   so the existing value-pop animation/remount trick works in an HTML context
+   too — zero new CSS (`.value-pop`/`.fig-enter` already tag-agnostic). Add
+   `matrix: MatrixFigure` to `KINDS`.
+- [x] **Zachary Day 1** (`functions/_sessionPacks.js`): new shared
+   `SCOREBOARD_SPEC` (cols = his 3 slate arcs — `translator`/`gear`/
+   `community`, matching `SLATE_SPEC`'s ids — rows = tam/sam/som/gap/gut, cells
+   empty, filled live). New `canvasProgram['figure.scoreboard']`.
+   `canvasDefaults['sizing.translator'|'sizing.gear'|'sizing.community'|
+   'sizing.compare']` → `figure.scoreboard` (replacing the old
+   `artifact:sizing.*` defaults — the artifact pane now only appears when the
+   Director explicitly consolidates + `[SHOW: artifact:...]`s it). New
+   masterPrompt "Sizing rules" section: work the scoreboard live (every agreed
+   number → `[FIG: figure.scoreboard :: col.row=value]` same turn, say-do);
+   name the arc in every ask (3 columns live in parallel); once a column reads
+   complete, consolidate that arc's memo via `[ARTIFACT:]` sourced from the
+   scoreboard + `[SHOW: artifact:sizing.<arc>]` same turn — tick gate
+   unchanged (edited-after-draft + ownership verifier). Light reword of the 3
+   sizing + `sizing.compare` objective `need` text to reference the scoreboard
+   instead of an implicit document-first flow.
+- [x] **Verify:** `node --check` all touched files clean; extended both
+   harnesses (new `matrix` validator accept/reject cases,
+   `figureElementIds`/`mergeFigureValues`/`unfilledFigureElementIds` matrix
+   coverage, scoreboard canvasDefaults resolve, system-prompt/envelope-nudge
+   fire for matrix via the real Zachary pack): `session-pack-test.mjs`
+   302→**333/333**, `session-engine-test.mjs` 137→**148/148**; `npm run build`
+   clean (436.86KB/135.48KB gzip, +0 deps). Did NOT touch
+   `lessons/zachary/...` R2 state, `_interview.js`, `_usher.js`,
+   `_turnCore.js`, `SHOWCASE_DAY`, or the `showcase`/`interview` routes.
+- [x] Updated `tasks/state.md` + this file with final counts/deviations.
+
+Full detail (audit findings, deviations, exact diffs touched) in
+`tasks/state.md` under this same "Phase T.4h" heading.

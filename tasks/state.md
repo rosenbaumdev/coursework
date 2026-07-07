@@ -1,5 +1,90 @@
 # Coursework Tracker — Session State
-Last updated: 2026-07-06
+Last updated: 2026-07-06 (Phase T.4h)
+
+## Phase T.4h — `matrix` figure kind + live SIZING SCOREBOARD — COMPLETE (2026-07-06)
+Owner design request from the live pilot: replace the document-first sizing
+flow with a live SIDE-BY-SIDE SCOREBOARD — arcs as columns, TAM/SAM/SOM/Gap/Gut
+rows filling in via `[FIG:]` as numbers get agreed in chat; memos become
+Director-drafted consolidations FROM the scoreboard that the learner edits (no
+retyping). Full plan in `tasks/todo.md` under this same heading.
+
+- **New figure kind `matrix`** (`functions/_sessionPacks.js`): spec
+  `{ cols: [{id,label,sub?,step?}] (2-4), rows: [{id,label}] (1-8), cells?:
+  {"colId.rowId": value}, steps? }`. Added to `FIGURE_KINDS`; extended
+  `figureElementIds` (col×row cross product, col-major order),
+  `mergeFigureValues` (cell overlay onto `spec.cells`, identity no-op when
+  nothing to merge), `unfilledFigureElementIds` (any col.row with no cell
+  value), `validateFigureSpec` (cols 2-4/rows 1-8 counts, col label ≤24, cell
+  value ≤60, cell keys must reference real ids, new `MATRIX_ID_RE` forbidding
+  dots in col/row ids since a cell key joins `colId.rowId` on the dot).
+  **Audit finding: zero changes needed in `_session.js` or `_turnCore.js`** —
+  `resolveShowTarget`, the envelope's unfilled-nudge, the values-hash
+  emit-with-no-fresh-[SHOW:] check, and the system prompt's target-listing
+  line are all already fully generic over figure kind; `[FIG:]` parsing splits
+  on the FIRST `=`, so dotted cell ids ("translator.tam") parse correctly with
+  no changes. Added `matrix` to the Stagehand `STAGE_SCHEMA_SUMMARY` doc-string
+  in `_session.js` for completeness (Stagehand already accepted any
+  `FIGURE_KINDS` member mechanically; only the prompt's shape description was
+  missing the new kind).
+- **Renderer** (`src/components/session/canvas/FigureCanvas.jsx`): new
+  `MatrixFigure` — an HTML CSS-grid (not SVG; real DOM text beats wrapped SVG
+  `<text>` for this much prose) with column headers (label + sub) across the
+  top, row labels down the left, values centered per cell; unfilled cells show
+  a muted em-dash. Generalized `ValueGroup` to accept `as` (default `'g'` for
+  the SVG kinds; matrix passes `'div'`) so the existing value-pop
+  remount-to-reanimate trick works in an HTML context for free — zero new CSS,
+  `.value-pop`/`.fig-enter` were already tag-agnostic. Added `matrix:
+  MatrixFigure` to `KINDS` (also auto-registers it for `DeckCanvas`'s
+  `FIGURE_KIND_RENDERERS`, though no Day-1 deck uses it — out of scope this
+  pass).
+- **Zachary Day 1** (`functions/_sessionPacks.js`): new shared
+  `SCOREBOARD_SPEC` — cols = his 3 slate arcs (`translator`/`gear`/
+  `community`, same ids as `SLATE_SPEC`'s items — one namespace), rows =
+  `tam`/`sam`/`som`/`gap`/`gut`, cells start empty. New
+  `canvasProgram['figure.scoreboard']`. `canvasDefaults` for
+  `sizing.translator`/`sizing.gear`/`sizing.community`/`sizing.compare` all
+  repointed from `artifact:sizing.*` → `figure.scoreboard` (the artifact pane
+  now only appears when the Director explicitly consolidates + `[SHOW:
+  artifact:sizing.<arc>]`s it). New masterPrompt "Sizing rules" section: work
+  the scoreboard live (every agreed number → `[FIG: figure.scoreboard ::
+  col.row=value]` same turn, say-do); always name the arc in the ask (3
+  columns live in parallel); once a column reads complete, consolidate that
+  arc's memo via `[ARTIFACT:]` sourced from the board +
+  `[SHOW: artifact:sizing.<arc>]` same turn — the tick gate is UNCHANGED
+  (edited-after-draft + ownership verifier still required). Lightly reworded
+  the 3 sizing + `sizing.compare` objective `need` text to reference the
+  scoreboard instead of an implicit document-first flow (no id/structure
+  changes, so no test churn beyond content).
+- **Tests:** `session-pack-test.mjs` 302→**333/333** (matrix validator
+  accept/reject incl. col/row count bounds, duplicate ids, label/value budgets,
+  dotted-id rejection, unknown-col/row cell rejection; `figureElementIds`
+  cross-product; `mergeFigureValues` overlay + no-op identity;
+  `unfilledFigureElementIds` appears-then-disappears via the real merge path;
+  deck-frame acceptance; Zachary-specific: `figure.scoreboard` shape, all 4
+  sizing canvasDefaults point at it, resolves, masterPrompt teaches the
+  workflow). `session-engine-test.mjs` 137→**148/148** (system prompt lists
+  `figure.scoreboard` with its col.row ids; `[SHOW:]` resolves a matrix
+  directive; the unfilled-nudge fires for the scoreboard once real Zachary
+  objectives advance focus to `sizing.translator`, names every arc column, and
+  correctly drops exactly the filled cell after a live `[FIG:]`; a scoreboard
+  cell value change emits a frame with no fresh `[SHOW:]`, matching every other
+  figure kind's existing mechanism) — proving the matrix kind needed no
+  engine-level special-casing.
+- `node --check` clean on `_sessionPacks.js`/`_session.js`; `npm run build`
+  clean (436.86KB/135.48KB gzip, was 434/135 — +0 new deps).
+- **Deviation:** no live/screenshot smoke — same no-touch-Zachary's-live-R2-
+  session guard as prior T.4* passes; relied on the harness + build per that
+  established posture. Did NOT touch `lessons/zachary/...` R2 state,
+  `_interview.js`, `_usher.js`, `_turnCore.js`, `SHOWCASE_DAY`, or the
+  interview/showcase routes.
+- **NOT done / explicitly out of scope this pass:** no Day-1 DECK frame uses
+  the new `matrix` kind (only the live `figure.scoreboard` canvas target does)
+  — the Deck Author "LEAD WITH A SHAPE" decks (`deck.tamsamsom`/`deck.swot`)
+  were untouched; `describeCanvas.js` (client) still only special-cases
+  concentric/quadrant in its figure `parts` summary — matrix joins the
+  pre-existing funnel/iconrow/bars gap there (not introduced by this pass; the
+  envelope's own "current values" line is the authoritative feed the Director
+  actually reads, so this doesn't block the feature).
 
 ## Phase T — Coached-session two-pane platform (NEW UI/UX) — BUILT + VALIDATED, UNCOMMITTED (2026-07-04)
 New product direction: **coursework-as-platform** — daily sessions run *inside* the app (own the loop, observe every turn, gate on objectives), generalizing the interview engine into the session engine. Full plan: `/Users/jonathanrosenbaum/.claude/plans/misty-mapping-widget.md`. Round-2 task tracker: `tasks/session-ui-tasks.md`.

@@ -103,6 +103,11 @@
 //                              (ICON_GLYPHS below mirrors it).
 //                 bars       — 2-6 horizontal bars: label + value + ratio
 //                              (0–1 relative width, mono value at bar end).
+//                 matrix     — side-by-side SCOREBOARD: 2-4 cols (e.g.
+//                              competing arcs) × 1-8 rows (metrics), cells
+//                              addressed "colId.rowId" — the compare/decide
+//                              shape (several options sized on the same
+//                              metrics at once, filled live via [FIG:]).
 //               All figure kinds accept an optional spec.title (in-shape
 //               heading) and inherit the staged-reveal layer (spec.steps).
 //   image     — { kind, src, caption? }. Full-slide image.
@@ -387,6 +392,31 @@ const SLATE_SPEC = {
   ],
 }
 
+// Live sizing SCOREBOARD (Phase T.4h — replaces the document-first sizing
+// flow): his three slate arcs as columns (ids match SLATE_SPEC's item ids —
+// same arcs, one namespace), TAM/SAM/SOM/Gap/Gut as rows beneath each. Cells
+// start empty ("—" placeholder client-side) and fill live as numbers/facts get
+// agreed in chat, one [FIG: figure.scoreboard :: <col>.<row>=<value>] per
+// agreed cell (masterPrompt Sizing rules, below). The per-arc memos become
+// Director-drafted CONSOLIDATIONS of this board (see canvasDefaults + the
+// masterPrompt), not documents worked up independently.
+const SCOREBOARD_SPEC = {
+  title: 'Sizing scoreboard — all three arcs, side by side',
+  cols: [
+    { id: 'translator', label: 'AI Investing Translator', sub: 'his idea — "a simplified transy"' },
+    { id: 'gear', label: 'AI Gear Comparison', sub: 'golf / soccer picks' },
+    { id: 'community', label: 'Peer Finance Community', sub: 'translator + his people' },
+  ],
+  rows: [
+    { id: 'tam', label: 'TAM' },
+    { id: 'sam', label: 'SAM' },
+    { id: 'som', label: 'SOM' },
+    { id: 'gap', label: 'Gap' },
+    { id: 'gut', label: 'Gut' },
+  ],
+  cells: {},
+}
+
 const SWOT_SPEC = {
   rows: ['Inside — yours to control', 'Outside — the world'],
   cols: ['Helps you', 'Hurts you'],
@@ -467,6 +497,29 @@ Teaching rules:
   each number) is checkable. Round numbers are fine; wrong by 2x is normal;
   wrong by 100x means an assumption broke — find which one.
 
+Sizing rules — work the LIVE SCOREBOARD, not a document:
+- His three arcs (translator, gear, community) sit as side-by-side columns on
+  one scoreboard figure, TAM/SAM/SOM/Gap/Gut rows beneath each. This REPLACES
+  working one memo document at a time: the scoreboard is the shared workspace
+  where the sizing actually happens; the memos come later, drawn from it.
+- The instant a number or fact for an arc is agreed in chat, land it on the
+  board THAT SAME TURN with [FIG: figure.scoreboard :: <col>.<row>=<value>]
+  (col = translator|gear|community, row = tam|sam|som|gap|gut) — say-do, no
+  exceptions. "Gap" is the one-line named-competitor gap from the landscape
+  work; "Gut" is his 1-10 score for that arc plus one line why.
+- Work the board in whatever order the conversation earns — don't force a
+  rigid row-by-row or column-by-column march — but because three columns are
+  live in parallel, ALWAYS name which arc you're asking about in the ask
+  itself; an unnamed question is ambiguous the moment more than one is open.
+- Once an arc's column reads complete (all five rows filled and he's
+  confirmed them), CONSOLIDATE that arc's memo FROM the scoreboard: in the
+  same turn, draft [ARTIFACT: sizing.<arc>] pulling the agreed scoreboard
+  values plus the SWOT/GTM ground already covered in chat, then
+  [SHOW: artifact:sizing.<arc>] so he sees the draft land. He edits it to make
+  it his — the tick gate (edited-after-your-draft + ownership check) is
+  unchanged; the scoreboard just means he never retypes a number already
+  agreed live.
+
 How to work with him, from his interview:
 - Ask DIRECT questions, not open-ended ones. "How many kids at your school have
   asked you about stocks?" beats "what do you think about the market?" He answers
@@ -513,10 +566,10 @@ How to work with him, from his interview:
 - [ ] R discuss tools.gtm.seen — GTM spelled out (Go-To-Market): channel, first-10-users plan, and why-they-pay — grounded in distribution he already has (his school, his team, the friends who ask him about stocks).
 
 ## 4. Size the slate
-- [ ] R artifact sizing.translator — A sizing memo for the AI Investing Translator exists and is HIS: worked out in chat, consolidated into a draft, then edited and owned by him — TAM/SAM/SOM with assumptions, 3 named competitors + the gap, top SWOT entries, first GTM move, gut score.
-- [ ] R artifact sizing.gear — The same memo for slate slot 2 (default: the AI Gear Comparison Tool) — chat work consolidated into a draft he then edited and owns.
-- [ ] R artifact sizing.community — The same memo for slate slot 3 (default: the Peer Finance Community) — chat work consolidated into a draft he then edited and owns.
-- [ ] B check sizing.compare — He's said, unprompted structure aside, which memo surprised him — where the numbers came out different than his gut expected.
+- [ ] R artifact sizing.translator — A sizing memo for the AI Investing Translator exists and is HIS: TAM/SAM/SOM/Gap/Gut worked out live on the sizing scoreboard, then consolidated into a draft and edited/owned by him — assumptions on every number, 3 named competitors + the gap, top SWOT entries, first GTM move.
+- [ ] R artifact sizing.gear — The same memo for slate slot 2 (default: the AI Gear Comparison Tool) — scoreboard work consolidated into a draft he then edited and owns.
+- [ ] R artifact sizing.community — The same memo for slate slot 3 (default: the Peer Finance Community) — scoreboard work consolidated into a draft he then edited and owns.
+- [ ] B check sizing.compare — Looking at the filled scoreboard side by side, he's said which arc surprised him — where the numbers came out different than his gut expected.
 
 ## 5. Decide
 - [ ] R artifact decision.memo — The decision memo exists: chosen arc, top 3 reasons each tied to a number or fact from his sizing memos (not vibes), the switch condition ("what would have to be true for me to change to the runner-up"), and the first build step.
@@ -924,6 +977,15 @@ p{font-size:13.5px;line-height:1.5}
       title: 'SWOT — where your version wins or loses',
       payload: { kind: 'quadrant', spec: SWOT_SPEC },
     },
+    // Live sizing scoreboard (Phase T.4h) — the sizing-phase default canvas.
+    // Cells fill in real time via [FIG: figure.scoreboard :: col.row=value]
+    // as numbers/facts get agreed per arc; the memos are consolidations OF
+    // this board (see canvasDefaults + masterPrompt Sizing rules).
+    'figure.scoreboard': {
+      type: 'figure',
+      title: 'Sizing scoreboard',
+      payload: { kind: 'matrix', spec: SCOREBOARD_SPEC },
+    },
     // Live, updatable slate (dynamic slate, Phase T.5) — same SLATE_SPEC as
     // deck.brief's slide 2, but addressable directly with [SHOW: figure.slate]
     // and updatable in real time with [FIG: figure.slate :: add="Label|sub"]
@@ -1024,9 +1086,13 @@ The first concrete thing tomorrow's session builds.`,
     'tools.swot.seen': 'deck.swot',
     'tools.swot.applied': 'figure.swot',
     'tools.gtm.seen': 'reading.gtm',
-    'sizing.translator': 'artifact:sizing.translator',
-    'sizing.gear': 'artifact:sizing.gear',
-    'sizing.community': 'artifact:sizing.community',
+    // Sizing phase defaults to the LIVE SCOREBOARD (Phase T.4h), not a memo
+    // pane — the artifact only comes up when the Director explicitly
+    // consolidates a completed column and [SHOW: artifact:sizing.<arc>]s it.
+    'sizing.translator': 'figure.scoreboard',
+    'sizing.gear': 'figure.scoreboard',
+    'sizing.community': 'figure.scoreboard',
+    'sizing.compare': 'figure.scoreboard',
     'decision.memo': 'artifact:decision.memo',
     'decision.defended': 'artifact:decision.memo',
     'wrap.recap': 'deck.brief',
@@ -1193,6 +1259,11 @@ export function figureElementIds(kind, spec) {
   if (kind === 'iconrow') return (spec.items || []).map((i) => i.id).filter(Boolean)
   if (kind === 'funnel') return (spec.bands || []).map((b) => b.id).filter(Boolean)
   if (kind === 'bars') return (spec.bars || []).map((b) => b.id).filter(Boolean)
+  if (kind === 'matrix') {
+    const colIds = (spec.cols || []).map((c) => c.id).filter(Boolean)
+    const rowIds = (spec.rows || []).map((r) => r.id).filter(Boolean)
+    return colIds.flatMap((c) => rowIds.map((r) => `${c}.${r}`))
+  }
   return []
 }
 
@@ -1207,6 +1278,8 @@ export function figureElementIds(kind, spec) {
 //   quadrant   — quadrantId APPENDS a new item to that quadrant (a live entry
 //                landing in real time, not an overwrite of an authored one)
 //   iconrow    — itemId sets that item's `sub`; `added` appends new items
+//   matrix     — "colId.rowId" sets that cell's value (overlays spec.cells;
+//                `added` unused — matrix has no runtime add-column mechanism)
 export function mergeFigureValues(kind, spec, values, added) {
   if (!values && !(added && added.length)) return spec
   const v = values || {}
@@ -1236,6 +1309,9 @@ export function mergeFigureValues(kind, spec, values, added) {
     }
     return { ...spec, items }
   }
+  if (kind === 'matrix') {
+    return { ...spec, cells: { ...(spec.cells || {}), ...v } }
+  }
   return spec
 }
 
@@ -1260,6 +1336,10 @@ export function unfilledFigureElementIds(kind, spec) {
   if (kind === 'bars') return (spec.bars || []).filter((b) => b.id && (b.value === null || b.value === undefined || b.value === '')).map((b) => b.id)
   if (kind === 'quadrant') return (spec.quadrants || []).filter((q) => q.id && (!q.items || q.items.length === 0)).map((q) => q.id)
   if (kind === 'iconrow') return (spec.items || []).filter((i) => i.id && !i.sub).map((i) => i.id)
+  if (kind === 'matrix') {
+    const cells = spec.cells || {}
+    return figureElementIds('matrix', spec).filter((id) => cells[id] === null || cells[id] === undefined || cells[id] === '')
+  }
   return []
 }
 
@@ -1395,7 +1475,7 @@ const CANVAS_TYPES = new Set(['reading', 'deck', 'video', 'image', 'browser', 't
 // Figure kinds FigureCanvas routes (grows with renderers). Exported: the
 // Stagehand (Phase T.4f Tier 3) validates a runtime-generated spec against the
 // SAME set + rules as authored packs.
-export const FIGURE_KINDS = new Set(['concentric', 'quadrant', 'funnel', 'iconrow', 'bars'])
+export const FIGURE_KINDS = new Set(['concentric', 'quadrant', 'funnel', 'iconrow', 'bars', 'matrix'])
 // Mirrors GLYPHS in FigureCanvas.jsx — the validator's half of the glyph map.
 // Adding a glyph: draw it there, name it here.
 export const ICON_GLYPHS = new Set([
@@ -1403,6 +1483,10 @@ export const ICON_GLYPHS = new Set([
   'video', 'wrench', 'mask', 'tag', 'spark', 'grid',
 ])
 const ID_RE = /^[a-z0-9][a-z0-9.\-]*$/i // no commas (TICK comma-split) or ':' ('::' evidence delimiter)
+// matrix col/row id charset — deliberately excludes '.' (unlike ID_RE above):
+// a [FIG:] cell key joins "colId.rowId" on the dot, so a dot INSIDE either id
+// would make that join ambiguous to split back apart.
+const MATRIX_ID_RE = /^[a-z0-9-]+$/i
 
 // Legacy shape: returns the ERRORS array only ([] = valid). Delegates to the
 // full validator; callers that care about authoring-taste WARNINGS (e.g. a deck
@@ -1590,6 +1674,34 @@ export function validateFigureSpec(kind, spec, err) {
       if (!(typeof b?.ratio === 'number' && b.ratio > 0 && b.ratio <= 1)) {
         err(`bar "${b?.id}" ratio must be a number in (0, 1] (relative width of the widest bar)`)
       }
+    }
+  }
+  if (kind === 'matrix') {
+    if (!Array.isArray(spec.cols) || spec.cols.length < 2 || spec.cols.length > 4) {
+      err('matrix spec.cols must be an array of 2-4 columns')
+    }
+    if (!Array.isArray(spec.rows) || spec.rows.length < 1 || spec.rows.length > 8) {
+      err('matrix spec.rows must be an array of 1-8 rows')
+    }
+    const colIds = checkEls(spec.cols, 'col')
+    const rowIds = checkEls(spec.rows, 'row')
+    for (const c of spec.cols || []) {
+      if (!c?.label) err(`col "${c?.id}" needs a label`)
+      else if (c.label.length > 24) err(`col "${c?.id}" label is ${c.label.length} chars — max 24`)
+      if (c?.id && !MATRIX_ID_RE.test(c.id)) {
+        err(`col id "${c.id}" invalid — lowercase letters/digits/hyphens only (cell keys join "col.row" on a dot)`)
+      }
+    }
+    for (const r of spec.rows || []) {
+      if (!r?.label) err(`row "${r?.id}" needs a label`)
+      if (r?.id && !MATRIX_ID_RE.test(r.id)) err(`row id "${r.id}" invalid — lowercase letters/digits/hyphens only`)
+    }
+    for (const [key, val] of Object.entries(spec.cells || {})) {
+      const dot = key.indexOf('.')
+      const cId = dot === -1 ? key : key.slice(0, dot)
+      const rId = dot === -1 ? '' : key.slice(dot + 1)
+      if (!colIds.has(cId) || !rowIds.has(rId)) err(`cells["${key}"]: must reference a real col.row id`)
+      if (val != null && String(val).length > 60) err(`cells["${key}"]: value is ${String(val).length} chars — max 60`)
     }
   }
 }

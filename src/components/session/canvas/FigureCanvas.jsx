@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 
 // Declarative staged-reveal figures (Fable review #3, §2). payload:
 // { kind, spec, step } — `step` arrives RESOLVED (an index; the server maps
@@ -148,11 +148,13 @@ function splitAssumption(value) {
 // it the instant the value changes (a fresh number landing on the figure), which
 // retriggers the `.value-pop` CSS animation for free — no manual prev-value
 // diffing/timers needed, same trick `.fig-enter` relies on at the figure level.
-function ValueGroup({ id, value, children }) {
+// `as` picks the host element — SVG kinds use the default 'g'; the HTML-based
+// matrix kind passes 'div' (`.value-pop`/`.fig-enter` are tag-agnostic CSS).
+function ValueGroup({ id, value, as: Tag = 'g', children }) {
   return (
-    <g key={`${id}:${value}`} className="value-pop">
+    <Tag key={`${id}:${value}`} className="value-pop">
       {children}
-    </g>
+    </Tag>
   )
 }
 
@@ -491,12 +493,69 @@ function BarsFigure({ spec, visible, entering }) {
   )
 }
 
+// Side-by-side SCOREBOARD (comparison shape): 2-4 columns (e.g. competing
+// arcs) with 1-8 labeled rows (metrics) filled beneath each — an HTML grid
+// rather than SVG (real DOM text reads far better than wrapped SVG <text> for
+// this much prose, per pattern). Unfilled cells show a subtle em-dash until a
+// value lands via a live [FIG: key :: colId.rowId=value]; columns may carry
+// `step` for staged reveal (rows are structural — always visible, the grid's
+// shape itself doesn't build up, only its column set can).
+function MatrixFigure({ spec, visible, entering }) {
+  const cols = (spec.cols || []).filter(visible)
+  const rows = spec.rows || []
+  const cells = spec.cells || {}
+  const gridTemplateColumns = `minmax(96px, auto) repeat(${Math.max(cols.length, 1)}, minmax(112px, 1fr))`
+
+  return (
+    <div className="w-full h-full overflow-auto flex flex-col items-center justify-center px-4 py-4">
+      {spec.title && <p className="font-sans font-semibold text-[15px] text-ink mb-4 text-center px-2">{spec.title}</p>}
+      <div className="w-full" style={{ maxWidth: 720 }}>
+        <div className="grid" style={{ gridTemplateColumns }}>
+          <div />
+          {cols.map((c) => (
+            <div key={c.id} className={`px-2 pb-3 text-center border-b-2 border-accent ${entering(c) ? 'fig-enter' : ''}`}>
+              <div className="font-sans font-semibold text-[13px] text-accent leading-tight">{c.label}</div>
+              {c.sub && <div className="font-sans text-[10.5px] text-muted mt-1 leading-snug">{c.sub}</div>}
+            </div>
+          ))}
+          {rows.map((r) => (
+            <Fragment key={r.id}>
+              <div className="pr-2 py-2.5 font-sans text-[11.5px] font-semibold uppercase tracking-[0.06em] text-muted border-t border-rule flex items-center">
+                {r.label}
+              </div>
+              {cols.map((c) => {
+                const cellKey = `${c.id}.${r.id}`
+                const raw = cells[cellKey]
+                const filled = raw != null && raw !== ''
+                const { main, paren } = filled ? splitAssumption(raw) : { main: null, paren: null }
+                return (
+                  <div key={cellKey} className="px-2 py-2.5 text-center border-t border-rule flex items-center justify-center">
+                    {filled ? (
+                      <ValueGroup id={cellKey} value={raw} as="div">
+                        <div className="font-mono font-semibold text-[13px] text-ink">{main}</div>
+                        {paren && <div className="font-sans text-[10px] text-muted mt-0.5">({paren})</div>}
+                      </ValueGroup>
+                    ) : (
+                      <span className="font-mono text-[13px] text-muted opacity-40">—</span>
+                    )}
+                  </div>
+                )
+              })}
+            </Fragment>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const KINDS = {
   concentric: ConcentricFigure,
   quadrant: QuadrantFigure,
   funnel: FunnelFigure,
   iconrow: IconRowFigure,
   bars: BarsFigure,
+  matrix: MatrixFigure,
 }
 
 // Shared with DeckCanvas: a `figure` deck frame embeds one of these renderers

@@ -426,6 +426,7 @@ const STAGE_SCHEMA_SUMMARY = `Respond with STRICT JSON ONLY — no prose, no mar
 - funnel     — spec: { bands: 3-5 [{id,label,value,sub?,step?}] (top→bottom order, value REQUIRED — the magnitude cascade is the message), steps?: [...] }
 - iconrow    — spec: { items: 3-6 [{id,label,glyph,sub?,step?}] (glyph MUST be one of: ${[...ICON_GLYPHS].join(', ')}), steps?: [...] }
 - bars       — spec: { bars: 2-6 [{id,label,value,ratio,step?}] (ratio a number in (0,1], relative width), steps?: [...] }
+- matrix     — spec: { cols: 2-4 [{id,label,sub?,step?}] (label <=24 chars), rows: 1-8 [{id,label}], cells?: {"colId.rowId": value} (value <=60 chars, keys must reference real col/row ids), steps?: [...] } — a side-by-side SCOREBOARD (several options sized on the same metrics at once)
 - deck       — spec: { frames: [...] }, each frame one of:
     statement — {kind:"statement", kicker?, text (<=90 chars), sub?}
     stat      — {kind:"stat", value (<=24 chars), label (<=80 chars), note?}
