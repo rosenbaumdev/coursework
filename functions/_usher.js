@@ -177,7 +177,12 @@ export async function ensureAsk(env, { persona, openObjectives, lastUserText, pr
 //   1. the primary engine's own [SUGGESTED_REPLIES] tag (free — already parsed),
 //   2. else an adaptive Haiku pass on the question,
 //   3. else deterministic extraction from an inline "X or Y" question (offline).
-export async function resolveChips(env, { tagSuggestions, cleanText, studentName }) {
+export async function resolveChips(env, { tagSuggestions, cleanText, studentName, suppressMultiQuestion = false }) {
+  // Lesson-mode guard (deterministic): a turn asking several distinct questions
+  // gets NO chips — chips are efficiency tools, not skip-the-work tools. Tapping
+  // an option for the final question would silently drop the earlier threads.
+  // (The interview keeps chip-the-closed-part behavior: capture ≠ teaching.)
+  if (suppressMultiQuestion && ((cleanText || '').match(/\?/g) || []).length >= 2) return []
   if (tagSuggestions && tagSuggestions.length) return tagSuggestions
   const viaHaiku = await suggestChips(env, cleanText, studentName)
   if (viaHaiku.length) return viaHaiku

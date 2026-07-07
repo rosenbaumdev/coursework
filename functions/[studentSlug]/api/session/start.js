@@ -131,6 +131,7 @@ async function settleOpener(env, session, pack, rawText, emitDelta) {
     tagSuggestions: parsed.suggestions,
     cleanText,
     studentName: session.studentName,
+    suppressMultiQuestion: true,
   })
 
   session.history.push({ role: 'assistant', content: cleanText })

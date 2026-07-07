@@ -302,6 +302,7 @@ export async function onRequestPost({ params, env, request }) {
           tagSuggestions: parsed.suggestions,
           cleanText,
           studentName: session.studentName,
+          suppressMultiQuestion: true,
         })
 
         session.history.push({ role: 'user', content: message })
