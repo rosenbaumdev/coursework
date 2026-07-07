@@ -17,6 +17,19 @@
 //     into a running summary via one Haiku call.
 //   - turn sequence guard: client echoes `seq`; stale/duplicate → 409.
 //   - per-day budget from the pack (maxTurns ceiling).
+//
+// Cast (a theater metaphor used consistently across this file and its
+// siblings — the naming shows up in comments throughout, not just here):
+//   DIRECTOR   — this engine (_session.js): decides, teaches, drives ticks and
+//                the canvas. The primary voice the learner hears.
+//   USHER      — (_usher.js): a per-turn side-call that resolves reply chips
+//                and backstops a turn that trails off with nothing to do.
+//   STAGEHAND  — (runStagehand, below): builds a runtime figure/deck spec on
+//                request when nothing authored fits.
+//   SCRIBE     — (_scribe.js): a per-turn Haiku sweep that lands values the
+//                conversation clearly established but the Director's own
+//                [FIG:] tag missed. A net, not a crutch — the Director should
+//                still be emitting [FIG:] itself (see the system prompt).
 
 import {
   getSessionPack,
@@ -42,6 +55,20 @@ import { ensureAsk } from './_usher.js'
 
 // Usher re-exports so the session endpoints import everything from here.
 export { resolveChips, looksAnswerable } from './_usher.js'
+// Scribe re-exports — same pattern as the Usher above: the endpoints import
+// everything through this one engine module rather than reaching into every
+// cast member's own file. The pure helpers (scribeCandidates, buildScribePrompt,
+// validateScribeOutput, mightContainValues) are re-exported too so the test
+// harness can exercise every non-network piece directly.
+export {
+  runScribeSweep,
+  mightContainValues,
+  scribeCandidates,
+  buildScribePrompt,
+  validateScribeOutput,
+  SCRIBE_MODEL,
+  SCRIBE_VALUE_MAX_LEN,
+} from './_scribe.js'
 
 export { getSessionPack, progressInfo, isComplete, isArtifactSatisfied, resolveShowTarget, DEFAULT_REPORT_SCHEMA }
 
@@ -591,7 +618,7 @@ TICKING (server-verified — false ticks are rejected silently and re-surfaced t
 Use it two ways only: (1) consolidate what ${p.subject} already worked out in chat into the memo so ${p.subject} doesn't retype it; (2) prepopulate the template/shared structure when ${p.subject} starts a later arc. Write ONLY what ${p.subject} said or the template scaffold — leave ${p.possessive} numbers, picks, and reasons as blanks or [YOUR NUMBER] markers for ${p.object} to fill. The tick is honored only after ${p.subject} has edited the draft and made it ${p.possessivePronoun}: the server rejects a tick until ${p.subject} has saved real changes after your draft AND an ownership check passes. Draft, hand the pen back, then verify what ${p.subject} changed and why before ticking. Place the [ARTIFACT:] block at the END of your turn, after your chat prose.
 Tick at most ${MAX_NEW_TICKS_PER_TURN} boxes per turn.
 
-CANVAS. Change what's on the canvas with [SHOW: <target>] — one per turn, place it where the change should happen. Valid targets: ${targets.join(', ')}${artifactTargets.length ? `, ${artifactTargets.join(', ')}` : ''}. Unknown targets are ignored. Figures build in steps — advance with [SHOW: <key>@<step>]; steps (and element ids) for each figure are listed with its target above, and a plain [SHOW: <key>] resumes where the figure left off. Once a real number or fact behind a figure element gets established in chat, put it on the figure in the SAME turn with [FIG: <key> :: <id>=<value>] (comma-separate multiple id=value pairs; quote a value that itself contains a comma, e.g. [FIG: figure.tamsamsom :: som="$3,600/yr (his count)"]); unknown ids are ignored, never guessed. To add a new item to an icon-row figure (max 6 total), use [FIG: <key> :: add="Label|short sub"]. THE CANVAS MUST TRACK THE CONVERSATION. When discussion moves to a figure's next stage, advance it with [SHOW: key@step] IN THAT TURN; when a real number gets established in chat for a figure element, put it on the figure with [FIG: key :: id=value] in that turn — a stale canvas while the chat moves on is a failure. The server makes newly-valued elements visible — if you're already showing the figure a value lands on, it auto-advances to the step that value belongs to and the frame updates with no [SHOW:] needed; your job is only to emit [FIG:] the moment a number/entry is agreed, never wait to be asked. The envelope tells you what's showing now; don't re-show it.
+CANVAS. Change what's on the canvas with [SHOW: <target>] — one per turn, place it where the change should happen. Valid targets: ${targets.join(', ')}${artifactTargets.length ? `, ${artifactTargets.join(', ')}` : ''}. Unknown targets are ignored. Figures build in steps — advance with [SHOW: <key>@<step>]; steps (and element ids) for each figure are listed with its target above, and a plain [SHOW: <key>] resumes where the figure left off. Once a real number or fact behind a figure element gets established in chat, put it on the figure in the SAME turn with [FIG: <key> :: <id>=<value>] (comma-separate multiple id=value pairs; quote a value that itself contains a comma, e.g. [FIG: figure.tamsamsom :: som="$3,600/yr (his count)"]); unknown ids are ignored, never guessed. To add a new item to an icon-row figure (max 6 total), use [FIG: <key> :: add="Label|short sub"]. THE CANVAS MUST TRACK THE CONVERSATION. When discussion moves to a figure's next stage, advance it with [SHOW: key@step] IN THAT TURN; when a real number gets established in chat for a figure element, put it on the figure with [FIG: key :: id=value] in that turn — a stale canvas while the chat moves on is a failure. The server makes newly-valued elements visible — if you're already showing the figure a value lands on, it auto-advances to the step that value belongs to and the frame updates with no [SHOW:] needed; your job is only to emit [FIG:] the moment a number/entry is agreed, never wait to be asked. The envelope tells you what's showing now; don't re-show it. A background sweep (the Scribe) also catches clearly-established values you forget to tag — it is a backstop for mistakes, not a substitute for the habit: emitting [FIG:] yourself, the same turn a value is agreed, remains your job.
 
 INSTANCES. Any figure key above can be turned into an independent, reusable copy with [SHOW: <key>#<instanceId>] (instanceId: lowercase letters/digits/hyphens, ≤24 chars — e.g. [SHOW: figure.tamsamsom#gym@sam]). The FIRST time you show a "key#id", it's a fresh copy of that figure's authored spec; every later [SHOW:]/[FIG:] using the SAME "key#id" updates THAT instance only — the base figure and every other instance stay untouched. Use this whenever the same sizing/comparison tool needs to run more than once in a session for genuinely different things (e.g. TAM/SAM/SOM for each arc on his slate) instead of overwriting one shared figure.
 
@@ -870,7 +897,41 @@ function programEntryFor(pack, session, baseKey) {
   return pack.canvasProgram?.[baseKey] || session.dynamicProgram?.[baseKey]
 }
 
-function resolveFigureDir(pack, session, target) {
+// --- Contents Menu catalog (self-navigation, Build 1) ---
+// Every STATICALLY known navigable target for the day — titles/types only,
+// never full payloads (the client resolves an uncached pick's full directive
+// on demand via the read-only /session/canvas endpoint below). Covers:
+// authored canvasProgram entries, declared artifact targets (from the pack,
+// not from live session.artifacts — an artifact is menu-reachable whether or
+// not it has content yet, since the pane is a fine place to START writing
+// one), and whatever Stagehand has already built THIS session (dynamicProgram)
+// so a stage-built visual is menu-reachable too. Runtime-only addressable
+// forms — figure instances ("key#id") and compare() ids — are NOT enumerable
+// here (they only exist once a [SHOW:] has actually created them); the client
+// folds those in itself from directives it has already seen (history, the
+// live canvas, a queued pending frame).
+export function buildCanvasCatalog(pack, session) {
+  const items = []
+  for (const [key, entry] of Object.entries(pack.canvasProgram || {})) {
+    items.push({ key, title: entry.title, type: entry.type })
+  }
+  for (const [id, gate] of Object.entries(pack.artifacts || {})) {
+    items.push({ key: `artifact:${id}`, title: gate.title, type: 'artifact' })
+  }
+  for (const [key, entry] of Object.entries(session.dynamicProgram || {})) {
+    items.push({ key, title: entry.title, type: entry.type })
+  }
+  return items
+}
+
+// Exported (Build 1): the Contents Menu's read-only browse endpoint
+// (functions/[studentSlug]/api/session/canvas.js) resolves a learner-picked
+// target through this SAME function authored [SHOW:] targets use — it reads
+// pack/session state but never writes it (no canvasTarget/figureState/seq
+// mutation), so browsing the menu is never Director intent and never touches
+// what the model sees as "currently showing" until/unless the model itself
+// (or a real turn's tier-2/3 default) actually [SHOW:]s it.
+export function resolveFigureDir(pack, session, target) {
   const merged = session.dynamicProgram && Object.keys(session.dynamicProgram).length
     ? { ...pack, canvasProgram: { ...pack.canvasProgram, ...session.dynamicProgram } }
     : pack

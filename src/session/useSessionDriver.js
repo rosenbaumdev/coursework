@@ -237,6 +237,15 @@ export function useSSESessionDriver(opts = {}) {
   const [sending, setSending] = useState(false)
   const [dayTitle, setDayTitle] = useState('')
   const [error, setError] = useState('')
+  // Contents Menu (Build 1): every STATICALLY known navigable target for the
+  // day (titles/types only — never full payloads), sent by the server in the
+  // start payload and refreshed on each turn's `done` frame (a Stagehand
+  // build can add a session-scoped target mid-session). `artifacts` is the
+  // live session.artifacts map (already sent by start.js, previously unused
+  // by this driver) — lets the menu show which declared artifacts already
+  // have real content.
+  const [catalog, setCatalog] = useState([])
+  const [artifacts, setArtifacts] = useState({})
 
   const seqRef = useRef(0)
   const sendingRef = useRef(false)
@@ -295,6 +304,8 @@ export function useSSESessionDriver(opts = {}) {
     if (data.canvas) applyCanvasFrame(data.canvas)
     else setCanvas(null)
     setDayTitle(data.dayTitle || '')
+    setCatalog(data.catalog || [])
+    setArtifacts(data.artifacts || {})
     setProgress({
       ticked: data.ticked || 0,
       totalRequired: data.totalRequired || 0,
@@ -501,6 +512,7 @@ export function useSSESessionDriver(opts = {}) {
             setLastContent(evt.message) // authoritative clean text
             setSuggestions(evt.suggestions || [])
             seqRef.current = evt.seq ?? seqRef.current + 1
+            if (evt.catalog) setCatalog(evt.catalog)
             setProgress({
               ticked: evt.ticked || 0,
               totalRequired: evt.totalRequired || 0,
@@ -527,6 +539,8 @@ export function useSSESessionDriver(opts = {}) {
     setCanvas(null)
     setPendingCanvas(null)
     setHistory([])
+    setCatalog([])
+    setArtifacts({})
     bootstrap(true)
   }
 
@@ -545,5 +559,7 @@ export function useSSESessionDriver(opts = {}) {
     error,
     restart,
     syncArtifact,
+    catalog,
+    artifacts,
   }
 }

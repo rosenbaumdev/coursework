@@ -1,5 +1,80 @@
 # Coursework Tracker — Session State
-Last updated: 2026-07-06 (Phase T.4h)
+Last updated: 2026-07-07 (Phase T.4i)
+
+## Phase T.4i — Contents Menu (self-navigation) + SCRIBE (new cast member) — COMPLETE (2026-07-07)
+Two green-lit builds fixing "Director as single point of failure" (owner
+framing): the learner could only ever go where the Director steered
+("Director as single point of failure" for navigation), and a value the
+Director talked through in chat without emitting `[FIG:]` just silently never
+landed on the canvas ("Director as single point of failure" for the canvas
+staying honest). Full design rationale + test-by-test breakdown in
+`tasks/todo.md` under this same heading — summary here:
+
+- **BUILD 1 — Contents Menu.** New `buildCanvasCatalog(pack, session)`
+  (`_session.js`) — titles/types only for every authored `canvasProgram`
+  entry, every declared `artifact:<id>` (browsable before it has content),
+  and session-scoped Stagehand `dynamicProgram` entries. Sent in `start.js`'s
+  payload (both resume + fresh) and refreshed every turn in `message.js`'s
+  `done` frame (cheap; catches a mid-session Stagehand build). New READ-ONLY
+  endpoint `functions/[studentSlug]/api/session/canvas.js` — `POST {day,
+  target}` → `{ directive }`, resolving via the now-exported `resolveFigureDir`
+  (same resolver `[SHOW:]` uses) without touching `canvasTarget`/
+  `figureState`/`seq` — a learner browsing the menu is never Director intent.
+  Client: `useSSESessionDriver` gained `catalog`/`artifacts` state (the latter
+  was already being sent by the server and silently unused — now surfaced).
+  `SessionView.jsx` gained a "☰ Contents" affordance beside the existing "‹
+  History" chip (narrow + wide headers, mutually-exclusive popovers), backed
+  by a new `browsedDirective` local override that generalizes T.4e's
+  `historyViewId` mechanism (`shownDirective = browsedDirective ||
+  historyEntry || liveDirective`; new `browsing` boolean replaces bare
+  `historyViewId` checks everywhere so the "Return to current" pill and
+  Continue-suppression both cover a Contents-Menu browse too). Picking an item
+  is cache-first (live target / history / pending frame reused directly;
+  otherwise one `POST /session/canvas` call). SEEN-tracking and
+  `describeCanvas` needed ZERO further changes — both were already keyed off
+  `shownDirective` from T.4e.
+- **BUILD 2 — SCRIBE.** New `functions/_scribe.js` — a per-turn Haiku sweep
+  landing values the conversation clearly established but the Director's own
+  `[FIG:]` missed. Cheap regex prefilter (digits/`$`/`%`) + a second free skip
+  when nothing "in play" (same candidate priority as the T.4g envelope nudge)
+  has any unfilled elements — most turns never reach the network. Director-
+  first precedence: `applyFigureValues` runs on the Director's own `[FIG:]`
+  values BEFORE the Scribe sweep, so `scribeCandidates`'s "unfilled" list
+  already reflects anything just landed — the Scribe can only fill gaps,
+  never overwrite (proven directly in the harness, not just asserted).
+  Strict-JSON model output `[{target, id, value}]` is validated
+  (`validateScribeOutput`) against the exact unfilled-id set per target —
+  unknown target/id/null dropped, overlong value truncated to 60 chars — same
+  discipline `[FIG:]` apply uses, and it's re-validated again inside
+  `applyFigureValues` itself. Output feeds the SAME `applyFigureValues` path
+  the Director's tags use (figValues shape `[{key, values}]`, tagged
+  `source: 'scribe'` in `transcriptLog`), followed by the same
+  `autoAdvanceShownFigureStep` + values-hash canvas-emit mechanism — zero new
+  canvas-emission plumbing needed. Fail-open on any error (never blocks/
+  corrupts a turn). Wired into both settle paths (`message.js`, `start.js`'s
+  `settleOpener`). `_session.js` gained a "Cast" header comment (Director /
+  Usher / Stagehand / Scribe, the existing theater metaphor written down in
+  one place) + one system-prompt sentence framing the Scribe as a backstop,
+  not a substitute for the Director's own `[FIG:]` habit.
+- **Tests:** `session-pack-test.mjs` stayed **333/333** (no pack-grammar
+  changes this pass); `session-engine-test.mjs` **148 → 184/184** (36 new
+  assertions: catalog shape, resolveFigureDir export + read-only-ness,
+  mightContainValues, scribeCandidates incl. Director-first-precedence proof,
+  buildScribePrompt shape, validateScribeOutput's full drop/truncate/group
+  matrix, runScribeSweep's two guaranteed-no-network-call skip branches —
+  same posture as the pre-existing runStagehand hard-cap test — system-prompt
+  Scribe line). `node --check` clean on every touched file; `npm run build`
+  clean (440.35KB/136.34KB gzip, +0 deps).
+- **Deviation:** no live/screenshot smoke — same standing owner guard as
+  every T.4* pass (Zachary's live day-1 R2 session must not be reset/
+  smoked); relied on the harness + build. Also: `message.js`'s `done` frame
+  carries a refreshed `catalog` beyond the brief's literal "start.js returns
+  catalog" wording — a small, deliberate extension (titles/types only, no
+  session mutation) so a mid-session Stagehand build is menu-reachable
+  without a restart.
+- Did NOT touch `lessons/zachary/...` R2 state, `_interview.js`, `_usher.js`
+  (only its `ensureAsk` side-call pattern was used as the model, per the
+  brief), `SHOWCASE_DAY`, or the interview/showcase routes.
 
 ## Phase T.4h — `matrix` figure kind + live SIZING SCOREBOARD — COMPLETE (2026-07-06)
 Owner design request from the live pilot: replace the document-first sizing

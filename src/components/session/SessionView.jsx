@@ -40,6 +40,15 @@ export default function SessionView() {
   // T.4e: browsing an older directive from history (null = viewing current/live).
   const [historyViewId, setHistoryViewId] = useState(null)
   const [historyOpen, setHistoryOpen] = useState(false)
+  // Build 1 — Contents Menu: self-navigation to ANY target for the day, not
+  // just ones already visited. `browsedDirective` is a fully-resolved
+  // CanvasDirective (fetched on demand for an uncached pick, or reused
+  // directly for one that's already cached) that overrides the live canvas —
+  // same override role historyViewId plays for a HISTORY pick, just sourced
+  // from the full catalog instead of only what's been shown so far.
+  const [browsedDirective, setBrowsedDirective] = useState(null)
+  const [contentsOpen, setContentsOpen] = useState(false)
+  const [contentsLoadingKey, setContentsLoadingKey] = useState(null)
   const liveStateRef = useRef(null)
   const syncArtifactRef = useRef(null)
   const seenIdsRef = useRef(new Set()) // directive ids the learner actually had on screen
@@ -109,6 +118,11 @@ export default function SessionView() {
   const pendingCanvas = isLive ? live.pendingCanvas : null
   const canvasHistory = isLive ? live.history : []
   const acceptPendingCanvas = isLive ? live.acceptPendingCanvas : () => {}
+  // Build 1 — Contents Menu: the day's STATIC catalog (titles/types only, from
+  // the server) only exists for a live pack — the scripted showcase has no
+  // pack to enumerate and no resolve endpoint to browse into.
+  const catalog = isLive ? live.catalog : []
+  const artifactsById = isLive ? live.artifacts : {}
 
   // Refs so buildContext (captured by the driver) reads the latest values.
   const canvasRef = useRef(null)
@@ -142,7 +156,11 @@ export default function SessionView() {
   // ACTUALLY on screen, per the same "seen vs shown" discipline as everything
   // else here.
   const historyEntry = historyViewId ? canvasHistory.find((d) => d.id === historyViewId) || null : null
-  const shownDirective = historyEntry || liveDirective
+  // Contents Menu browse takes priority over a history browse (both are local
+  // overrides of the live directive; only one is ever set at a time — see
+  // openContentsItem/viewHistoryEntry, which each clear the other).
+  const shownDirective = browsedDirective || historyEntry || liveDirective
+  const browsing = Boolean(historyViewId || browsedDirective)
   canvasRef.current = shownDirective
   const orientationLockedRef = useRef(orientationLocked)
   orientationLockedRef.current = orientationLocked
@@ -216,7 +234,7 @@ export default function SessionView() {
   // history (that has its own "Return to current" affordance).
   const showContinue =
     isNarrow &&
-    !historyViewId &&
+    !browsing &&
     (hasCanvas || Boolean(pendingCanvas)) &&
     activeTab === 'chat' &&
     (Boolean(pendingCanvas) || !currentSeen) &&
@@ -230,13 +248,89 @@ export default function SessionView() {
     if (pendingCanvas) acceptPendingCanvas()
     setActiveTab('canvas')
   }
+  // The two popovers (History, Contents) are mutually exclusive — opening one
+  // closes the other rather than stacking them.
+  function toggleHistory() {
+    setContentsOpen(false)
+    setHistoryOpen((v) => !v)
+  }
+  function toggleContents() {
+    setHistoryOpen(false)
+    setContentsOpen((v) => !v)
+  }
   function viewHistoryEntry(id) {
+    setBrowsedDirective(null)
     setHistoryViewId(id)
     setHistoryOpen(false)
     if (isNarrow) setActiveTab('canvas')
   }
   function returnToCurrent() {
     setHistoryViewId(null)
+    setBrowsedDirective(null)
+  }
+
+  // Build 1 — Contents Menu: merge the day's static catalog (server, titles/
+  // types only) with everything the client has ALREADY resolved — recently-
+  // displayed history, the live canvas, and a still-queued pending frame —
+  // so runtime-only forms (figure instances, compare() ids, a just-arrived
+  // Stagehand build not yet in a refreshed catalog) show up too, deduped by
+  // id/key. Recomputed per render — the lists involved are tiny.
+  function catalogItems() {
+    const map = new Map()
+    for (const c of catalog || []) map.set(c.key, { key: c.key, title: c.title, type: c.type })
+    for (const d of canvasHistory) if (!map.has(d.id)) map.set(d.id, { key: d.id, title: d.title, type: d.type })
+    if (liveDirective && !map.has(liveDirective.id)) {
+      map.set(liveDirective.id, { key: liveDirective.id, title: liveDirective.title, type: liveDirective.type })
+    }
+    if (pendingCanvas && !map.has(pendingCanvas.id)) {
+      map.set(pendingCanvas.id, { key: pendingCanvas.id, title: pendingCanvas.title, type: pendingCanvas.type })
+    }
+    return [...map.values()]
+  }
+
+  // Picking a Contents Menu item. Cache-first (never a wasted round trip for
+  // something already resolved): the item IS the live target → just snap any
+  // browse override back to live; it's already in history or is the queued
+  // pending frame → reuse that resolved directive directly; otherwise it's an
+  // uncached authored/dynamic target → resolve it read-only via the new
+  // /session/canvas endpoint. Either way this is the learner SELF-navigating —
+  // never Director intent, never a server-state mutation (canvas.js is a pure
+  // read + resolve; see its header comment).
+  async function openContentsItem(item) {
+    setContentsOpen(false)
+    if (isNarrow) setActiveTab('canvas')
+    if (liveDirective?.id === item.key) {
+      setHistoryViewId(null)
+      setBrowsedDirective(null)
+      return
+    }
+    const cached = canvasHistory.find((d) => d.id === item.key)
+    if (cached) {
+      setBrowsedDirective(null)
+      setHistoryViewId(item.key)
+      return
+    }
+    if (pendingCanvas?.id === item.key) {
+      setHistoryViewId(null)
+      setBrowsedDirective(pendingCanvas)
+      return
+    }
+    if (!isLive) return // scripted showcase has no pack/resolve endpoint
+    setHistoryViewId(null)
+    setContentsLoadingKey(item.key)
+    try {
+      const res = await fetch(`/${studentSlug}/api/session/canvas`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ day: '1', target: item.key }),
+      })
+      const data = await res.json().catch(() => null)
+      if (res.ok && data?.directive) setBrowsedDirective(data.directive)
+    } catch {
+      /* quiet failure — the menu item just doesn't open; nothing to undo */
+    } finally {
+      setContentsLoadingKey(null)
+    }
   }
 
   function onSelect(sel) {
@@ -302,8 +396,9 @@ export default function SessionView() {
           onLiveState={reportLiveState}
           pinnedRect={pendingSelection?.rectPct}
         />
-        {historyViewId ? (
-          // Browsing an older directive — always offered a way back, wide or narrow.
+        {browsing ? (
+          // Browsing an older directive OR a Contents Menu pick — always
+          // offered a way back, wide or narrow.
           <div className="absolute inset-x-0 bottom-3 z-20 flex justify-center px-4">
             <button
               type="button"
@@ -449,10 +544,21 @@ export default function SessionView() {
                 )}
               </button>
             )}
+            {isLive && catalog.length > 0 && (
+              <button
+                type="button"
+                onClick={toggleContents}
+                title="Jump to any part of today's session"
+                aria-label="Contents"
+                className="shrink-0 h-7 w-7 grid place-items-center rounded-full border border-rule/70 bg-white/60 text-muted active:scale-95"
+              >
+                ☰
+              </button>
+            )}
             {canvasHistory.length > 1 && (
               <button
                 type="button"
-                onClick={() => setHistoryOpen((v) => !v)}
+                onClick={toggleHistory}
                 title="Revisit earlier canvas material"
                 className="shrink-0 rounded-full border border-rule/70 bg-white/60 px-2 py-1 text-[11px] font-medium text-muted active:scale-95"
               >
@@ -489,10 +595,20 @@ export default function SessionView() {
             >
               ↻ Restart
             </button>
+            {isLive && catalog.length > 0 && (
+              <button
+                type="button"
+                onClick={toggleContents}
+                title="Jump to any part of today's session"
+                className="shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-muted hover:text-ink underline underline-offset-2"
+              >
+                ☰ Contents
+              </button>
+            )}
             {canvasHistory.length > 1 && (
               <button
                 type="button"
-                onClick={() => setHistoryOpen((v) => !v)}
+                onClick={toggleHistory}
                 className="shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-muted hover:text-ink underline underline-offset-2"
               >
                 ‹ History
@@ -526,6 +642,53 @@ export default function SessionView() {
                 </button>
               </li>
             ))}
+          </ul>
+        </div>
+      )}
+
+      {contentsOpen && (
+        // Build 1 — Contents Menu: EVERY navigable target for the day (the
+        // static catalog + anything already resolved client-side), not just
+        // what's been visited — self-navigation, not a revisit list.
+        <div className="absolute right-3 top-12 sm:top-14 z-40 w-72 max-h-80 overflow-y-auto rounded-lg border border-rule bg-white shadow-card">
+          <div className="sticky top-0 flex items-center justify-between border-b border-rule bg-white px-3 py-2">
+            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Contents</span>
+            <button type="button" onClick={() => setContentsOpen(false)} className="text-muted hover:text-ink text-[13px] leading-none">
+              ✕
+            </button>
+          </div>
+          <ul>
+            {catalogItems().map((item) => {
+              const artifactId = item.type === 'artifact' ? item.key.slice('artifact:'.length) : null
+              const drafted = artifactId ? Boolean((artifactsById?.[artifactId]?.content || '').trim()) : false
+              const loading = contentsLoadingKey === item.key
+              return (
+                <li key={item.key}>
+                  <button
+                    type="button"
+                    onClick={() => openContentsItem(item)}
+                    disabled={loading}
+                    className={`w-full text-left px-3 py-2 text-[12px] hover:bg-accent/5 flex items-center justify-between gap-2 disabled:opacity-50 ${
+                      canvasId === item.key ? 'bg-accent/10' : ''
+                    }`}
+                  >
+                    <span className="truncate text-ink flex items-center gap-1.5 min-w-0">
+                      {artifactId && (
+                        <span
+                          className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${drafted ? 'bg-accent' : 'bg-rule'}`}
+                          title={drafted ? 'Drafted' : 'Not started'}
+                          aria-hidden
+                        />
+                      )}
+                      <span className="truncate">{item.title || item.key}</span>
+                    </span>
+                    <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.1em] text-muted">
+                      {loading ? '…' : item.type}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         </div>
       )}

@@ -33,12 +33,14 @@ import {
   applyFigureValues,
   autoAdvanceShownFigureStep,
   runStagehand,
+  runScribeSweep,
   resolveCanvasChange,
   currentCanvasDirective,
   resolveChips,
   looksAnswerable,
   ensureNextAsk,
   fallbackAsk,
+  buildCanvasCatalog,
   MAX_NEW_TICKS_PER_TURN,
   SESSION_MODEL,
   SESSION_EFFORT,
@@ -72,6 +74,24 @@ async function settleOpener(env, session, pack, rawText, emitDelta) {
   // FIX 1 (T.4g) — same auto-advance rule as the per-turn engine, applied to
   // the opener too (a resumed/prepopulated entry could conceivably carry one).
   autoAdvanceShownFigureStep(pack, session, parsed.figValues)
+
+  // SCRIBE — same rule as the per-turn engine: Director-authored [FIG:]
+  // values (above) apply first; the Scribe only fills what's still unfilled.
+  // An opener rarely establishes real numbers (nothing said yet), but entry
+  // context CAN prepopulate/recap prior-day values, so this is wired for
+  // consistency rather than skipped. `lastUserText: null` — there's no real
+  // learner turn yet at a fresh start.
+  const scribeResult = await runScribeSweep(env, pack, session, { cleanText, lastUserText: null })
+  if (scribeResult.figValues.length) {
+    applyFigureValues(session, pack, scribeResult.figValues)
+    autoAdvanceShownFigureStep(pack, session, scribeResult.figValues)
+    session.transcriptLog.push({
+      role: 'scribe',
+      source: 'scribe',
+      figValues: scribeResult.figValues,
+      ts: new Date().toISOString(),
+    })
+  }
 
   // Stagehand (Phase T.4f Tier 3) — an opener could conceivably request one
   // (e.g. entry.context nudges toward a bespoke recap visual); same rule as
@@ -132,6 +152,7 @@ async function settleOpener(env, session, pack, rawText, emitDelta) {
     suggestions,
     canvas: currentCanvasDirective(pack, session),
     artifacts: session.artifacts,
+    catalog: buildCanvasCatalog(pack, session), // Contents Menu (Build 1)
     sessionDone: false,
     seq: session.seq,
     day: session.dayId,
@@ -170,6 +191,7 @@ export async function onRequestPost({ params, env, request }) {
       suggestions: existing.lastSuggestions || [],
       canvas: currentCanvasDirective(pack, existing),
       artifacts: existing.artifacts,
+      catalog: buildCanvasCatalog(pack, existing), // Contents Menu (Build 1)
       sessionDone: Boolean(existing.completed),
       seq: existing.seq,
       day: dayId,

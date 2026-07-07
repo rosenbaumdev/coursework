@@ -10,7 +10,7 @@
 //   { type: 'delta',  text }                                   — reply chunk
 //   { type: 'canvas', directive }                              — canvas change
 //   { type: 'done',   message, sessionDone, suggestions,
-//     ticked, totalRequired, focus, seq, canvasTarget }         — turn settled
+//     ticked, totalRequired, focus, seq, canvasTarget, catalog } — turn settled
 //   { type: 'error',  message }                                 — turn failed; not persisted
 
 import { errorResponse } from '../../../_shared.js'
@@ -36,6 +36,7 @@ import {
   applyFigureValues,
   autoAdvanceShownFigureStep,
   runStagehand,
+  runScribeSweep,
   foldHistory,
   focusIdOf,
   maxTurnsFor,
@@ -46,6 +47,7 @@ import {
   applyArtifactWrites,
   prepareOwnershipVerdicts,
   mirrorArtifacts,
+  buildCanvasCatalog,
   MAX_NEW_TICKS_PER_TURN,
   MIN_TURNS_BEFORE_COMPLETE,
   SESSION_MODEL,
@@ -216,6 +218,26 @@ export async function onRequestPost({ params, env, request }) {
         // actually emits the frame.
         autoAdvanceShownFigureStep(pack, session, parsed.figValues)
 
+        // SCRIBE — per-turn Haiku sweep (new cast member): the Director's own
+        // [FIG:] values are already applied above (Director-first precedence —
+        // the Scribe only ever considers elements STILL unfilled after that).
+        // Cheap prefilter + candidate check inside runScribeSweep mean most
+        // turns skip the network call entirely. Never throws (fail-open).
+        const scribeResult = await runScribeSweep(env, pack, session, {
+          cleanText,
+          lastUserText: message,
+        })
+        if (scribeResult.figValues.length) {
+          applyFigureValues(session, pack, scribeResult.figValues)
+          autoAdvanceShownFigureStep(pack, session, scribeResult.figValues)
+          session.transcriptLog.push({
+            role: 'scribe',
+            source: 'scribe',
+            figValues: scribeResult.figValues,
+            ts: new Date().toISOString(),
+          })
+        }
+
         // Stagehand (Phase T.4f Tier 3) — BEFORE canvas resolution so a
         // successful build is [SHOW:]-able THIS turn. Success force-shows the
         // new key (auto [SHOW:] semantics — overrides whatever the model may
@@ -324,6 +346,11 @@ export async function onRequestPost({ params, env, request }) {
             suggestions,
             seq: session.seq,
             canvasTarget: session.canvasTarget,
+            // Contents Menu (Build 1): re-sent each turn since a Stagehand
+            // build (Tier 3) can add a new session-scoped dynamicProgram
+            // entry mid-session — cheap (titles/types only) and keeps the
+            // menu current without forcing a restart to see a new target.
+            catalog: buildCanvasCatalog(pack, session),
             ...progressInfo(pack, session.inventoryState),
           })
         )
