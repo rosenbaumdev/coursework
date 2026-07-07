@@ -595,6 +595,18 @@ export default function SessionView() {
             >
               ↻ Restart
             </button>
+          </div>
+          {/* Canvas-side controls live on the RIGHT, near the canvas they act on. */}
+          <div className="flex items-center gap-3 shrink-0">
+            {canvasHistory.length > 1 && (
+              <button
+                type="button"
+                onClick={toggleHistory}
+                className="shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-muted hover:text-ink underline underline-offset-2"
+              >
+                ‹ History
+              </button>
+            )}
             {isLive && catalog.length > 0 && (
               <button
                 type="button"
@@ -605,17 +617,8 @@ export default function SessionView() {
                 ☰ Contents
               </button>
             )}
-            {canvasHistory.length > 1 && (
-              <button
-                type="button"
-                onClick={toggleHistory}
-                className="shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-muted hover:text-ink underline underline-offset-2"
-              >
-                ‹ History
-              </button>
-            )}
+            {hasCanvas && <OrientationToggle orientation={orientation} onChange={changeOrientation} />}
           </div>
-          {hasCanvas && <OrientationToggle orientation={orientation} onChange={changeOrientation} />}
         </div>
       )}
 
