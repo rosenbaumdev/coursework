@@ -1309,14 +1309,42 @@ export function mergeFigureValues(kind, spec, values, added) {
     }
   }
   if (kind === 'iconrow') {
-    let items = (spec.items || []).map((it) => (it.id && v[it.id] != null ? { ...it, sub: v[it.id] } : it))
+    let items = (spec.items || []).map((it) => {
+      if (!it.id || v[it.id] == null) return it
+      // "New Label|new sub" RENAMES the item (arc swap); a plain value is sub-only.
+      const val = String(v[it.id])
+      const bar = val.indexOf('|')
+      if (bar !== -1) return { ...it, label: val.slice(0, bar).trim(), sub: val.slice(bar + 1).trim() }
+      return { ...it, sub: val }
+    })
     if (added && added.length) {
       items = [...items, ...added.map((a) => ({ id: a.id, glyph: a.glyph || 'spark', label: a.label, sub: a.sub || '' }))].slice(0, 6)
     }
     return { ...spec, items }
   }
   if (kind === 'matrix') {
-    return { ...spec, cells: { ...(spec.cells || {}), ...v } }
+    // Dotted keys (col.row) are cell values; a bare col-id key RENAMES that
+    // column — "New Label|new sub" or label-only (keeps the scoreboard
+    // consistent after an arc swap on the slate).
+    const cells = {}
+    const cols = (spec.cols || []).map((c) => ({ ...c }))
+    for (const [k, val] of Object.entries(v)) {
+      if (k.includes('.')) {
+        cells[k] = val
+        continue
+      }
+      const col = cols.find((c) => c.id === k)
+      if (!col) continue
+      const cv = String(val)
+      const bar = cv.indexOf('|')
+      if (bar !== -1) {
+        col.label = cv.slice(0, bar).trim()
+        col.sub = cv.slice(bar + 1).trim()
+      } else {
+        col.label = cv
+      }
+    }
+    return { ...spec, cols, cells: { ...(spec.cells || {}), ...cells } }
   }
   return spec
 }
