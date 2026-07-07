@@ -1,5 +1,65 @@
 # Status (rolling)
 
+## Phase T.4g — Auto-advance shown figure's step + unfilled-elements envelope nudge — COMPLETE (2026-07-06)
+Two generalized (zero pack-specific) engine fixes from the live pilot: the
+owner had to ASK for a computed number (SAM) to land on the canvas, and had
+to manually navigate to a figure step that had already silently populated.
+
+- [x] **FIX 1 — auto-advance the shown figure's step.** New
+      `autoAdvanceShownFigureStep(pack, session, figValues)` in `_session.js`,
+      called in both settle paths (`message.js`, `start.js`'s `settleOpener`)
+      right after `applyFigureValues`, before canvas resolution. Scoped
+      tightly: only mutates `figureState`/`figureInstances` for whatever's
+      ALREADY on screen (matches the exact base/instance key of the value
+      write, mirroring `applyFigureValues`' own malformed-instance degrade);
+      a value landing on a figure/instance that ISN'T displayed is left
+      completely alone (no hijack — Fix 2 + the model's own [SHOW:] cover
+      that case). Computes the furthest `spec.steps` index among the newly
+      valued elements' own `step` fields and advances (never retreats) if
+      it's beyond the current step. Emits via the EXISTING values-hash check
+      in `resolveCanvasChange` (unchanged) — this function only sets the step
+      that mechanism reads, never fights it, never emits itself.
+- [x] **FIX 2 — unfilled-elements envelope nudge.** New
+      `unfilledFigureElementIds(kind, spec)` in `_sessionPacks.js` (read-side
+      counterpart to `mergeFigureValues`'s write side, one branch per figure
+      kind: null/empty `value` for concentric/funnel/bars, zero `items` for
+      quadrant, missing `sub` for iconrow). `buildSessionEnvelope` in
+      `_session.js` picks ONE candidate figure (focus objective's
+      `canvasDefault` first, else whatever's currently displayed) and, if it
+      resolves to a figure with unfilled ids, prints one line:
+      `FIGURE ELEMENTS UNFILLED on <key>: <ids> — as each is established in
+      conversation, put it on the figure with [FIG: <key> :: id=value] in
+      that turn.` Zero pack-specific code — works for any kind, any day.
+- [x] One system-prompt CANVAS line reinforcing Fix 1's contract: the server
+      auto-advances a shown figure to a newly-valued element's step with no
+      [SHOW:] needed; the model's job is to emit [FIG:] the moment a
+      number/entry is agreed, never wait to be asked.
+- [x] `node --check` clean on `_session.js`, `_sessionPacks.js`,
+      `[studentSlug]/api/session/{message,start}.js`.
+- [x] Harnesses extended (both baselines kept green, then grown):
+      `session-pack-test.mjs` 293→**302/302** (pure-function
+      `unfilledFigureElementIds` coverage: concentric/quadrant/iconrow appear
+      via a real/synthetic spec then disappear once filled via the real
+      `mergeFigureValues` path; funnel/bars null-value detection sanity —
+      those kinds' validator requires a value at authoring time, so this is
+      defensive, not pack-exercised). `session-engine-test.mjs` 118→**137/137**
+      (Fix 1: step advances + emits on the shown figure, never retreats on an
+      earlier-step value, does NOT touch an off-screen figure or a different
+      instance of the same base figure; Fix 2: nudge fires + disappears for
+      concentric via the REAL Zachary pack, and for quadrant via a small
+      test-local mini-pack fixture — NOT added to `_sessionPacks.js`, since
+      real SWOT ships pre-seeded with example items and showcase/registered
+      packs were off-limits to touch; system-prompt reinforcement line
+      assertion).
+- [x] `npm run build` clean (434KB/135KB gzip, +0 deps — no new dependencies).
+- [ ] Live smoke — SKIPPED per the owner's guard: Zachary's live day-1
+      session (~20 real turns) must not be reset/smoked. Relied on harness +
+      build, same posture as T.4d-fix/T.4e/T.4f.
+- [x] Updated `tasks/state.md` + this file.
+
+Did NOT touch `lessons/zachary/...` R2 state, `_interview.js`, `_usher.js`,
+or `SHOWCASE_DAY` in `_sessionPacks.js`.
+
 ## Phase T.5 / T.4d-fix — Runtime [FIG:] value injection + canvas-sync discipline + client animations/swipe + dynamic slate — COMPLETE (2026-07-06)
 
 Owner-reported live bug: chat computed SAM ≈ $37,500 while canvas sat frozen on

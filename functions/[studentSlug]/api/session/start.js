@@ -31,6 +31,7 @@ import {
   makeTickGuard,
   applyArtifactWrites,
   applyFigureValues,
+  autoAdvanceShownFigureStep,
   runStagehand,
   resolveCanvasChange,
   currentCanvasDirective,
@@ -67,6 +68,10 @@ async function settleOpener(env, session, pack, rawText, emitDelta) {
   // Runtime [FIG:] value/addition injection (Phase T.5) — BEFORE canvas
   // resolution, same rule as the per-turn engine.
   applyFigureValues(session, pack, parsed.figValues)
+
+  // FIX 1 (T.4g) — same auto-advance rule as the per-turn engine, applied to
+  // the opener too (a resumed/prepopulated entry could conceivably carry one).
+  autoAdvanceShownFigureStep(pack, session, parsed.figValues)
 
   // Stagehand (Phase T.4f Tier 3) — an opener could conceivably request one
   // (e.g. entry.context nudges toward a bespoke recap visual); same rule as
