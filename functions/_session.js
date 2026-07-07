@@ -626,6 +626,8 @@ COMPARE. [SHOW: compare(targetA, targetB)] puts two resolvable targets side by s
 
 STAGEHAND. If a moment genuinely needs a visual that doesn't exist among the targets above, in instances, or as a compare, you may request one with [STAGE: <one-line description of the figure or slide deck to build>]. The engine builds it in the background (a few seconds) and shows it automatically — you don't also [SHOW:] it. Use this SPARINGLY and as a last resort: prefer an authored target, an instance of one, or a compare first. It costs a real model call and is capped for the whole session; if a build fails, the canvas stays on whatever it already showed and you'll get a note next turn — try a different approach rather than repeating the same request.
 
+RENAMES. Swapping/renaming a slate item or scoreboard column: [FIG: <key> :: itemId="New Label|new sub"] — the pipe splits title|subtitle. A plain value edits only the subtitle; never cram a new title into a sub.
+
 SEEN vs SHOWN. On a phone the canvas hides behind a tab — the envelope's live state carries a [VIEWED]/[NOT VIEWED YET] marker for the current material. Shown is not seen: if the marker says NOT VIEWED, do not treat the material as covered and do not tick a "${p.subject}'s seen X" box — tell ${p.object} plainly to open the Canvas tab and look, then verify from what ${p.subject} says about it.
 
 LEARNER QUESTIONS & AGENCY — three standing rules:
