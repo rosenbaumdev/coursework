@@ -280,7 +280,7 @@ export default function DeckCanvas({ payload }) {
             onClick={() => go(1)}
             disabled={page >= total - 1}
             className={`font-mono text-[12px] uppercase tracking-[0.14em] disabled:opacity-30 rounded-md px-2.5 py-1 transition ${
-              pulseNext ? 'text-white bg-accent animate-pulse' : 'text-accent'
+              pulseNext ? 'text-white bg-accent pulse-cue' : 'text-accent'
             }`}
           >
             Next →

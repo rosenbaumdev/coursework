@@ -73,7 +73,7 @@ export default function SplitPane({
     <div
       aria-hidden={!hasCanvas}
       className="shrink-0 grow-0 min-w-0 min-h-0 overflow-hidden transition-[flex-basis,opacity] duration-300 ease-out"
-      style={{ flexBasis: hasCanvas ? `${ratio * 100}%` : '0%', opacity: hasCanvas ? 1 : 0 }}
+      style={{ flexBasis: hasCanvas ? `${ratio * 100}%` : '0%', opacity: hasCanvas ? 1 : 0, contain: 'layout paint' }}
     >
       {canvas}
     </div>
