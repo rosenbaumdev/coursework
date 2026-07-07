@@ -285,6 +285,8 @@ export const DEFAULT_REPORT_SCHEMA = `
 ## Artifacts Produced
 ## Where They Got Stuck
 ## Parked Threads
+## Learner Feedback & Suggestions (verbatim — routed to the course architect)
+(Every platform/course critique, suggestion, or friction moment the learner voiced, quoted in their words, with context. Empty only if none occurred.)
 ## Flags for the Instructor
 ## Instrument Retro (engine self-notes — separate from learner data)
 `.trim()
