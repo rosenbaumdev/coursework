@@ -200,7 +200,12 @@ export function makeTickGuard(pack, session) {
     if (obj.type === 'artifact') {
       if (!isArtifactSatisfied(pack, session.artifacts, id)) return false // (a)
       const art = session.artifacts[id]
-      if (art?.lastDirectorWriteAt && !(art.lastLearnerEditAt > art.lastDirectorWriteAt)) return false // (b)
+      // (b) ownership action: a pane edit after the draft OR his words carried
+      // as tick evidence (the verifier then checks the content traces to his
+      // chat — retyping his own spoken words into the pane is ritual, not
+      // ownership; owner finding, pilot walk 2).
+      const edited = !art?.lastDirectorWriteAt || art.lastLearnerEditAt > art.lastDirectorWriteAt
+      if (!edited && !evidence) return false
       if (!art?.verifier || art.verifier.pass !== true) return false // (c)
     }
     return true
@@ -387,7 +392,7 @@ async function contentHash(text) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-export async function prepareOwnershipVerdicts(env, session, pack, attemptedIds) {
+export async function prepareOwnershipVerdicts(env, session, pack, attemptedIds, evidence = {}) {
   for (const id of attemptedIds || []) {
     const obj = pack.objectives.find((o) => o.id === id)
     if (!obj || obj.type !== 'artifact') continue
@@ -395,9 +400,11 @@ export async function prepareOwnershipVerdicts(env, session, pack, attemptedIds)
     const art = session.artifacts[id]
     const gate = pack.artifacts?.[id]
     if (!art || !gate) continue
-    // Only spend the call when layers (a)+(b) already hold.
+    // Only spend the call when layer (a) holds and an ownership action exists
+    // (pane edit after draft, or his words as tick evidence).
     if (!isArtifactSatisfied(pack, session.artifacts, id)) continue
-    if (art.lastDirectorWriteAt && !(art.lastLearnerEditAt > art.lastDirectorWriteAt)) continue
+    const edited = !art.lastDirectorWriteAt || art.lastLearnerEditAt > art.lastDirectorWriteAt
+    if (!edited && !evidence?.[id]) continue
     const hash = await contentHash(art.content)
     if (art.verifier?.hash === hash) continue // cached verdict for this exact content
     const learnerTurns = session.history
@@ -595,7 +602,7 @@ export function rejectedTicks(pack, session, attemptedIds, tickedBefore, evidenc
       const gate = pack.artifacts?.[id]
       const len = (art?.content || '').trim().length
       if (len < (gate?.minChars ?? 1)) reason = 'gate'
-      else if (art?.lastDirectorWriteAt && !(art.lastLearnerEditAt > art.lastDirectorWriteAt)) reason = 'unedited'
+      else if (art?.lastDirectorWriteAt && !(art.lastLearnerEditAt > art.lastDirectorWriteAt) && !evidence[id]) reason = 'unedited'
       else if (art?.verifier && art.verifier.pass === false) reason = 'ownership'
     }
     out.push({ id, reason })
@@ -636,7 +643,7 @@ TICKING (server-verified — false ticks are rejected silently and re-surfaced t
 [ARTIFACT: id]
 <full replacement content, markdown>
 [/ARTIFACT]
-Use it two ways only: (1) consolidate what ${p.subject} already worked out in chat into the memo so ${p.subject} doesn't retype it; (2) prepopulate the template/shared structure when ${p.subject} starts a later arc. Write ONLY what ${p.subject} said or the template scaffold — leave ${p.possessive} numbers, picks, and reasons as blanks or [YOUR NUMBER] markers for ${p.object} to fill. The tick is honored only after ${p.subject} has edited the draft and made it ${p.possessivePronoun}: the server rejects a tick until ${p.subject} has saved real changes after your draft AND an ownership check passes. Draft, hand the pen back, then verify what ${p.subject} changed and why before ticking. Place the [ARTIFACT:] block at the END of your turn, after your chat prose.
+Use it two ways only: (1) consolidate what ${p.subject} already worked out in chat into the memo so ${p.subject} doesn't retype it; (2) prepopulate the template/shared structure when ${p.subject} starts a later arc. Write ONLY what ${p.subject} said or the template scaffold — leave ${p.possessive} numbers, picks, and reasons as blanks or [YOUR NUMBER] markers for ${p.object} to fill. The tick is honored once ownership is real: EITHER ${p.subject} edits the draft, OR the substance already came from ${p.possessive} own words in chat — then tick with ${p.possessive} words as evidence ([TICK: id :: "..."]) and the ownership check verifies it traces to what ${p.subject} said. NEVER leave [YOUR WORDS] placeholders and demand ${p.subject} retype things ${p.subject} already told you — fill them from ${p.possessive} chat words yourself and invite edits only if ${p.subject} wants changes. Retyping is not ownership; ${p.possessive} words are. Place the [ARTIFACT:] block at the END of your turn, after your chat prose.
 Tick at most ${MAX_NEW_TICKS_PER_TURN} boxes per turn.
 
 CANVAS. Change what's on the canvas with [SHOW: <target>] — one per turn, place it where the change should happen. Valid targets: ${targets.join(', ')}${artifactTargets.length ? `, ${artifactTargets.join(', ')}` : ''}. Unknown targets are ignored. Figures build in steps — advance with [SHOW: <key>@<step>]; steps (and element ids) for each figure are listed with its target above, and a plain [SHOW: <key>] resumes where the figure left off. Once a real number or fact behind a figure element gets established in chat, put it on the figure in the SAME turn with [FIG: <key> :: <id>=<value>] (comma-separate multiple id=value pairs; quote a value that itself contains a comma, e.g. [FIG: figure.tamsamsom :: som="$3,600/yr (his count)"]); unknown ids are ignored, never guessed. To add a new item to an icon-row figure (max 6 total), use [FIG: <key> :: add="Label|short sub"]. THE CANVAS MUST TRACK THE CONVERSATION. When discussion moves to a figure's next stage, advance it with [SHOW: key@step] IN THAT TURN; when a real number gets established in chat for a figure element, put it on the figure with [FIG: key :: id=value] in that turn — a stale canvas while the chat moves on is a failure. The server makes newly-valued elements visible — if you're already showing the figure a value lands on, it auto-advances to the step that value belongs to and the frame updates with no [SHOW:] needed; your job is only to emit [FIG:] the moment a number/entry is agreed, never wait to be asked. The envelope tells you what's showing now; don't re-show it. A background sweep (the Scribe) also catches clearly-established values you forget to tag — it is a backstop for mistakes, not a substitute for the habit: emitting [FIG:] yourself, the same turn a value is agreed, remains your job.

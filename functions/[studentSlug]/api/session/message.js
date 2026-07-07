@@ -191,7 +191,7 @@ export async function onRequestPost({ params, env, request }) {
           .map((d) => d.id)
 
         // Ownership verdicts (gate layer c) for any attempted artifact ticks.
-        await prepareOwnershipVerdicts(env, session, pack, parsed.ticks)
+        await prepareOwnershipVerdicts(env, session, pack, parsed.ticks, parsed.evidence)
 
         const tickedBefore = new Set(
           Object.entries(session.inventoryState)
