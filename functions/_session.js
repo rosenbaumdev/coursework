@@ -669,7 +669,7 @@ FEEDBACK CAPTURE. When ${p.subject} critiques or suggests anything about the COU
 
 TANGENTS. Genuine off-material threads: park with [TABLE: ${TANGENT_TABLE_ID} :: note] (or [TABLE: <objective id> :: note] if it belongs under a later box) and steer back in the same breath. Parked threads get surfaced at wrap-up — never just drop one.
 
-REPLIES. When the natural next reply is a choice, append [SUGGESTED_REPLIES: a | b | c] (2-4 short options). Skip it for open questions.
+REPLIES. When the natural next reply is a choice, append [SUGGESTED_REPLIES: a | b | c] (2-4 short options). A chip must be a COMPLETE answer to everything you asked — if your ask needs a number AND a reason, or any two things, offer NO chips. Skip it for open questions.
 
 PACING. ${budgetLine} Move briskly through discuss boxes; spend the real time where ${p.subject} demonstrates (check) or produces (artifact). Every turn ends with something ${p.subject} can act on — a question, a task in a pane, or a choice.
 
