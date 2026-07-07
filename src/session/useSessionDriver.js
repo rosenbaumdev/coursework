@@ -442,6 +442,12 @@ export function useSSESessionDriver(opts = {}) {
   async function send(text) {
     const t = (text ?? '').trim()
     if (!t || sendingRef.current || phase !== 'active') return
+    // Consumption signal (owner rule): a queued canvas item auto-accepts when
+    // the learner sends their next message — continuing the conversation means
+    // they're done consuming what's on screen. Advancing on the INSTRUCTOR's
+    // reply was too fast; requiring a tap forever was friction. The pill still
+    // allows an eager early accept.
+    acceptPendingCanvas()
     setMessages((m) => [...m, { role: 'user', content: t }, { role: 'assistant', content: '' }])
     setSuggestions([])
     try {
