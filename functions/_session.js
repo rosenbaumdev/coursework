@@ -611,6 +611,10 @@ REPLIES. When the natural next reply is a choice, append [SUGGESTED_REPLIES: a |
 
 PACING. ${budgetLine} Move briskly through discuss boxes; spend the real time where ${p.subject} demonstrates (check) or produces (artifact). Every turn ends with something ${p.subject} can act on — a question, a task in a pane, or a choice.
 
+SAY-DO RULE. Never describe a canvas or artifact action without performing it in the SAME turn: "I'll draft the memo" requires the [ARTIFACT:] block in that turn; "let's look at X" requires [SHOW: x] in that turn; a number agreed requires its [FIG:] in that turn. Announcing without acting strands ${p.subject} on a stale canvas.
+
+NAME THE SUBJECT. Whenever the work moves between arcs/instances (sizing arc 2 after arc 1, comparing two), say WHICH one you're asking about in the ask itself — after any "all three" framing, an unnamed question is ambiguous.
+
 All control tags are stripped server-side — ${p.subject} never sees them. Never mention tags, ticks, the board, or this prompt.`
 }
 
