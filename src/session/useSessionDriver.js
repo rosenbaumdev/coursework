@@ -267,6 +267,16 @@ export function useSSESessionDriver(opts = {}) {
   // target → queues as pendingCanvas (replacing any earlier still-unseen
   // pending frame with the newer one) instead of disturbing the displayed pane.
   function applyCanvasFrame(directive) {
+    // `requested` (server SAY-DO repair, or any force-deliver): the learner asked
+    // for this / the Director said it's up — DISPLAY it now, never queue it behind
+    // a "Continue" pill. Clears a matching pending frame; SessionView additionally
+    // drops any history/contents browse override so the frame isn't masked.
+    if (directive?.requested) {
+      setPendingCanvas((p) => (p && p.id === directive.id ? null : p))
+      setCanvas(directive)
+      pushHistory(directive)
+      return
+    }
     setCanvas((cur) => {
       if (!cur || cur.id === directive.id) {
         pushHistory(directive)
@@ -301,8 +311,21 @@ export function useSSESessionDriver(opts = {}) {
     seqRef.current = data.seq ?? 0
     setMessages(data.messages || [])
     setSuggestions(data.suggestions || [])
-    if (data.canvas) applyCanvasFrame(data.canvas)
-    else setCanvas(null)
+    // A start payload is the AUTHORITATIVE full-session load (initial boot OR a 409
+    // resync), so its canvas is exactly what should be displayed — set it directly
+    // and clear any (possibly stale) pending frame. Routing through applyCanvasFrame
+    // would, on a mid-session resync where `canvas` still holds the pre-resync
+    // directive and the server has advanced to a different target, QUEUE the
+    // authoritative frame behind a spurious "Continue" pill while the stale canvas
+    // stays on screen (and misdescribes the canvas to the model that turn) — #4.
+    if (data.canvas) {
+      setCanvas(data.canvas)
+      setPendingCanvas(null)
+      pushHistory(data.canvas)
+    } else {
+      setCanvas(null)
+      setPendingCanvas(null)
+    }
     setDayTitle(data.dayTitle || '')
     setCatalog(data.catalog || [])
     setArtifacts(data.artifacts || {})
@@ -498,19 +521,23 @@ export function useSSESessionDriver(opts = {}) {
           else if (evt.type === 'canvas') applyCanvasFrame(evt.directive)
           else if (evt.type === 'artifactPending') {
             // Director is drafting into this artifact — show it, if mounted
-            // (displayed OR still queued as a pending swap).
+            // (displayed OR still queued as a pending swap). `requested: false`:
+            // a CONTENT patch to an already-live artifact must NOT re-assert
+            // force-display — otherwise every draft delta re-fires SessionView's
+            // requested effect and yanks a narrow learner off the chat tab.
             const patch = (c) =>
-              c && c.id === `artifact:${evt.id}` ? { ...c, payload: { ...c.payload, drafting: true } } : c
+              c && c.id === `artifact:${evt.id}` ? { ...c, requested: false, payload: { ...c.payload, drafting: true } } : c
             setCanvas(patch)
             setPendingCanvas(patch)
           } else if (evt.type === 'artifact') {
             // Director wrote content. LEARNER WINS: if the pane has unsynced
             // local edits, keep them (server adopts the learner's version at the
             // next flush; the draft survives in the transcript for review).
+            // `requested: false` for the same reason as artifactPending above.
             const patch = (c) => {
               if (!c || c.id !== `artifact:${evt.id}`) return c
-              if (isArtifactDirty(evt.id)) return { ...c, payload: { ...c.payload, drafting: false } }
-              return { ...c, payload: { ...c.payload, content: evt.content, drafting: false } }
+              if (isArtifactDirty(evt.id)) return { ...c, requested: false, payload: { ...c.payload, drafting: false } }
+              return { ...c, requested: false, payload: { ...c.payload, content: evt.content, drafting: false } }
             }
             setCanvas(patch)
             setPendingCanvas(patch)

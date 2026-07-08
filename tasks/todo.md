@@ -1,5 +1,185 @@
 # Status (rolling)
 
+## Dev batch — Jonathan's 6 open comments (2026-07-07, dev only, HOLD release)
+Working on dev; do NOT deploy until this batch is reviewed. Production is already
+live at coursework.kitbord.com with the canvas-resolver deploy.
+#1–#5 DONE + verified on dev (harnesses 333+184 green, `npm run build` clean).
+#6 is design-only, awaiting Jonathan's check-in (touches coursework data).
+
+- [x] **1. Scroll-to-bottom button** (Claude-style): hovering round button, down
+      arrow, appears when scrolled up, jumps to bottom + re-arms streaming-follow.
+      → `ChatMessages.jsx` (`atBottom` state + floating button).
+- [x] **2. `000,000` formatting** (thousands separators). Jonathan: throughout the
+      platform — chat + artifacts, NOT code windows. → new `src/lib/format.js`
+      (`withThousands` / `commaFormatMarkdown`, skips fenced/inline code + years);
+      wired into `Bubble.jsx` (chat) + `ArtifactCanvas.jsx` (memo preview). Figures
+      already handled by `fmtFigureValue`.
+- [x] **3. Streaming scroll — follow the bottom** (Jonathan: "do 2… otherwise 1;
+      let's not guess"). Behavior 2 (grow-up-then-freeze-at-top) pushed streaming
+      text below the fold = the "broken" report. Switched to follow-the-bottom
+      (Claude-style), headless-Chrome verified (ALL PASS). → `ChatMessages.jsx`.
+- [x] **4. Thinking indicator** — 3-dot staggered pulse in the assistant bubble
+      whenever a cast member is working (streaming OR post-text canvas work).
+      Replaced the single caret. → `Bubble.jsx` (`ThinkingDots`).
+- [x] **5. Sizing → revenue opportunity.** New `Rev` row on the sizing scoreboard
+      (SOM × price × cadence for the project window, assumption stated in-cell).
+      → `_sessionPacks.js`: `SCOREBOARD_SPEC.rows` (tam/sam/som/**rev**/gap/gut) +
+      masterPrompt "Rev" instruction + memo rubric/objective text. Harnesses updated.
+- [x] **6. Values elicitation (bake-off).** DONE on dev (growable-matrix primitive
+      + values scorecard + front/tail objectives + VALUES DRIVERS rule; harnesses
+      335+199 green, build clean). See decisions.md 2026-07-07 + steps A-F below.
+      Z should name his values / non-scale
+      qualities to weigh in the arc choice — he won't do it automatically. Put it
+      at the FRONT (establish) and TAIL (weigh the pick against them) of the
+      scope/choice process. Pack/pedagogy — DESIGN, proposal to Jonathan.
+      Touches coursework data structure → check-in required per CLAUDE.md.
+
+### #6 build plan — values scorecard (CHECK-IN CLEARED 2026-07-07)
+Jonathan chose: **values scorecard figure** + **global primitive now** (reusable,
+not just day-1 hardwired). Dev-only, HOLD release with the rest of the batch.
+
+Reusable engine primitive = **growable-row matrix** (learner-defined rows added at
+runtime) + a generic VALUES rule; day-1 objectives instantiate it. Steps:
+
+- [ ] **A. Engine: runtime add-ROW for matrix figures** (the one new capability).
+  - `_session.js`: new session field `figureRowAdditions: {}` ({ [baseKey]: [{id,label}] }).
+  - `applyFigureValues`: for matrix bases, handle `[FIG: key :: addrow="id|Label"]`
+    (parallel to iconrow `add=`): validate id (MATRIX_ID_RE), require spec.growRows,
+    cap total rows ≤ 8, dedupe by id → push to figureRowAdditions[base]. Then build
+    `validIds` from rows MERGED with additions so same-turn cell writes land.
+  - `mergeFigureValues` matrix branch: append figureRowAdditions rows to spec.rows.
+  - `figureHash`: include row additions so a new row triggers a canvas frame.
+- [ ] **B. Pack: the values scorecard figure** (`_sessionPacks.js`).
+  - `VALUES_SPEC`: matrix, `growRows:true`, cols = SAME 3 arc ids as SCOREBOARD_SPEC,
+    `rows: []` (learner-filled), cells {}. canvasProgram target `figure.values`.
+  - Validation: allow 0-8 rows when `growRows` (currently hard 1-8).
+- [ ] **C. Pack: objectives + canvasDefaults + VALUES rule.**
+  - FRONT objective `R discuss values.named` (start of §4) — 3-5 non-scale values
+    named in his words, each landed as a scorecard row.
+  - TAIL objective `R check values.weighed` (§5) — each arc scored 1-5 per value
+    WITH him; final pick defended on BOTH axes (sizing numbers + values fit).
+  - canvasDefaults: both → `figure.values`.
+  - masterPrompt: generic **VALUES DRIVERS** rule (elicit-first, score-at-decision,
+    weigh scale AND fit — never let biggest TAM alone decide).
+- [ ] **D. Client:** MatrixFigure already renders dynamic rows — verify only; no
+  change expected. (Optional 1-5 dot viz deferred — keep number parity, no branch.)
+- [ ] **E. Verify:** extend both harnesses (addrow apply/merge/cap/dedupe + envelope
+  nudge over dynamic rows + validation of a growRows matrix); `npm run build` clean.
+- [ ] **F. decisions.md:** record the growable-matrix primitive + values-scorecard
+  pattern as the reusable mechanism (packs instantiate; engine stays generic).
+
+## 🚨 Day-1 pilot trap — Zachary got stuck at the end (2026-07-07) — FIXED (dev) + live session closed
+**What happened:** Zachary did the whole day (13/18 objectives incl. decision.defended,
+wrap.recap, wrap.next) but the 4 required ARTIFACT gates (3 sizing memos + decision.memo)
+never ticked — the ownership verifier refused them (identical-to-draft / rejected-arc memo /
+weakness bracket unfilled). `isComplete` never true → the never-orphan backstop appended
+"Let's keep going: <sizing objective>" EVERY turn, overriding the Director's own "we're done"
+and the learner saying "please stop" 4×. He rage-quit. Root causes: (1) no graceful exit —
+required gates the only terminal state; (2) verifier too strict for consolidation memos;
+(3) required an owned memo for an arc he REJECTED.
+
+**Fixes (dev, HOLD with batch) — pack 335 / engine 221 green, build clean:**
+- [x] **Ownership verifier softened** (`_session.js`) — credits the learner's LIVE work
+      (numbers/picks agreed on the boards); lean PASS on close calls; FAIL only genuine
+      theater (untraceable/contradictory content, or a rejected-arc memo).
+- [x] **Graceful exit** — `detectStopIntent` (`_session.js`, deterministic, tested on
+      Zachary's actual messages) + `message.js`: the never-orphan nag is SUPPRESSED when
+      the learner signals stop; and a session closes gracefully (`completed` +
+      `endedIncomplete`) when they stop after ≥70% of required objectives + past the turn
+      floor. Never trap an exhausted learner behind the last gates.
+- [x] **Zachary's live prod day-1 closed** — one-time careful write: completed=true,
+      endedIncomplete=true, 13/18 ticks preserved. He's unblocked for tomorrow.
+
+**Follow-ups:**
+- [ ] **Deploy decision:** his live session is closed, but the ENGINE fix only helps future
+      sessions once the held batch ships. Recommend deploying the graceful-exit + verifier
+      fixes soon (live-student-facing).
+- [ ] **Author day-2** for noob-to-ai-entrepreneur (only `[ZACHARY_DAY_1]` exists — use the
+      Course Architect instrument).
+- [ ] **Reconsider required-artifact load** (deferred: user chose "soften verifier" over
+      "right-size artifacts"). Requiring owned memos for NON-chosen/rejected arcs is still
+      pedagogically heavy even with the softer verifier + graceful exit — revisit.
+
+## Adversarial review (2026-07-07) — 12 confirmed / 2 plausible / 1 refuted
+Multi-agent red-team (5 dimensions, adversarial verify). No confirmed critical; no
+cross-student/R2 leak survived. Full report: scratchpad/ADVERSARIAL_REVIEW.md.
+
+### Fixed this pass (dev, HOLD release with the batch) — harnesses 335+205, build clean
+- [x] **#1 (HIGH) artifact-body tag leak** — `_turnCore.js` parseTurn now extracts
+      artifact writes + strips artifact blocks FIRST, then runs TICK/TABLE/SHOW/
+      FIG/STAGE/SUGGESTED over `stripped`, never raw `text`. Tags drafted inside a
+      memo no longer fire as live directives. +6 regression tests.
+- [x] **#2 (HIGH) comma formatter corruption** — `src/lib/format.js`: boundary
+      classes now reject `/ # _ -` (phones, #refs, snake_ids, URL segments spared);
+      `commaFormatMarkdown` masks markdown links + autolinks + bare URLs like code.
+      Verified: phones/refs/ids/links unchanged, quantities/$/parens still format.
+- [x] **#5 (MED) requested-frame yank** — `useSessionDriver.js` artifact patch
+      closures set `requested:false`, so content patches don't re-fire SessionView's
+      requested effect and snap a narrow learner off the chat tab.
+- [x] **#6 (MED) streaming dead-band** — `ChatMessages.jsx` recomputes `atBottom`
+      on content growth when follow is off, so the jump-to-bottom button appears in
+      the 5–79px scroll-up band.
+- [x] **#11 (LOW) values board empty state** — `FigureCanvas.jsx` MatrixFigure
+      renders a muted placeholder row when `rows:[]` (no floating header), bounds
+      the label track + break-any so long labels wrap instead of overflowing.
+
+### Tier 2 fixed (2026-07-07, dev, HOLD) — harnesses 335+211, build clean
+- [x] **#3 (MED) Stagehand cost cap** — `_session.js` runStagehand now increments
+      `stageBuildCount` at the TOP (counts the attempt before spending calls), so
+      failed builds count toward `STAGE_MAX_BUILDS`; `buildNo` names the key.
+- [x] **#4 (MED) 409 stale canvas** — `useSessionDriver.js` applyStartPayload sets
+      the canvas directly + clears pending (a start payload is authoritative), so a
+      resync displays the server canvas instead of queuing it behind a Continue pill.
+- [x] **#7 (MED) nested-bracket leak** — `_turnCore.js` replaced the depth-1
+      TABLE_RE/FIG_RE with `extractBalancedTags` (bracket-depth scan → any depth).
+      Deeper fix: TABLE/FIG spans are removed BEFORE TICK/SHOW/STAGE/SUGGESTED
+      extract, so a tag quoted inside a note never fires. +2 regression tests.
+- [x] **P1 (MED) SAY-DO tri-state** — `resolveClaimedTargetLLM` returns
+      `RESOLVER_NONE` (ran, no target) vs `null` (outage); `message.js` skips repair
+      on NONE, falls back to the deterministic resolver only on outage — no forced
+      canvas yank on a purely referential mention.
+
+### Remaining review findings (follow-up, not yet done)
+- [ ] #8 (LOW) ownership verifier fails open (`pass:true` on parse error) + learner-
+      controlled text interpolated raw into the Haiku judge (`_session.js:458`).
+      Fix: fence the verifier input; fail CLOSED (or neutral "unverified") on parse
+      error for artifact objectives. Pairs with the CF Access / report-writer phase.
+- [ ] #9 (LOW) foldHistory summary is a persistent injection channel — a learner
+      line that survives summarization re-enters the Director prompt every turn
+      (`_session.js:927`). Fix: fence the transcript chunk; summarize facts only.
+- [ ] #10 (LOW) discuss-objective ticks have no evidence gate (`_session.js:201`) —
+      by design ("Model tick OK"); revisit only if discuss ticks need auditing.
+- [ ] #12 (LOW) autoAdvanceShownFigureStep ignores matrix column steps
+      (`_session.js:399`) — latent (no authored stepped matrix). Fix if/when a
+      Stagehand-built stepped matrix ships.
+- [ ] P2 (PLAUSIBLE/LOW) Scribe has no deterministic provenance check on landed
+      values (`_scribe.js:186`) — model-gated, self-only. Fix: require instructor
+      corroboration or mark Scribe values provisional.
+- [ ] #9 (LOW) foldHistory summary is a persistent injection channel.
+- [ ] #10 (LOW) discuss ticks ungated (by design — revisit with report-writer).
+- [ ] #12 (LOW) autoAdvanceShownFigureStep ignores matrix column steps (latent).
+- [ ] P1 (PLAUSIBLE) SAY-DO backstop can't distinguish resolver NONE from error
+      (`message.js:310`) — give the LLM resolver a tri-state result.
+- [ ] P2 (PLAUSIBLE) Scribe has no provenance check on landed values (self-only).
+
+## BACKLOG (pending — not yet started)
+
+### Feedback loop → creator-reviewed recursive self-improvement
+
+**What:** Any in-session learner comment about the app/platform itself — a complaint, a question about how something works, a "why can't I…", a "it'd be better if…", or an observed friction/bug — should be captured into a durable feedback channel for the creator (Jonathan) to review later and decide whether to act on.
+
+**Two layers:**
+1. **Capture (mostly built):** the Director already has the `FEEDBACK CAPTURE` rule — it parks such comments verbatim via `[TABLE: tangent :: FEEDBACK: "…"]` and tells the learner their suggestion reaches the course architect. Remaining work: these parked items must land in a **single reviewable surface for the creator** (session report section + a dashboard aggregation across sessions/students), not just buried in per-session JSON. This ties into the Step-5 durable-record/report-writer work.
+2. **Propose (new):** the system should go beyond logging — it should periodically synthesize accumulated feedback + observed pilot failures into **concrete proposed improvements** (engine rules, pack edits, UX changes), each presented to the creator for **explicit approval before anything ships** — the same human-on-the-loop, propose-then-approve pattern I use here. This is the "recursive self-improvement, human-gated" north-star loop noted in the plan; this makes it a real deliverable rather than a doc footnote.
+
+**Why:** learners who know they're heard give better signal; and the creator can't manually review every session — the system should surface *what to consider changing*, with the human retaining the accept/reject decision.
+
+**Guardrails:** proposals are suggestions only — never auto-applied. Approval is required per change. Keep the reviewable surface deduped and ranked (recurring complaints first).
+
+**Cross-links (for the implementer):** the capture half is the `FEEDBACK CAPTURE` rule in `functions/_session.js` (parks to `[TABLE: tangent :: FEEDBACK: …]`); the reviewable-surface + propose halves belong with the Step-5 report-writer and the creator dashboard — build them there, not standalone. Related in-session invariant already landed this session: the `NO UI COACHING` rule (same file) — a Walker check-target when that QA agent is built.
+
+---
+
 ## Phase T.4i — Contents Menu (self-navigation) + SCRIBE (new cast member) — COMPLETE (2026-07-07)
 Two green-lit builds fixing "Director as single point of failure": the learner
 was stuck wherever the Director chose to steer, and a value the Director

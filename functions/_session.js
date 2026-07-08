@@ -49,6 +49,7 @@ import {
   validateFigureSpec,
   validateDeckEntry,
   INSTANCE_ID_RE,
+  MATRIX_ID_RE,
 } from './_sessionPacks.js'
 import { callAnthropic, readJSON, writeJSON } from './_turnCore.js'
 import { ensureAsk } from './_usher.js'
@@ -126,6 +127,7 @@ export function newLesson(student, course, studentSlug, pack) {
     figureState: {}, // { [baseKey]: stepIndex } — each figure's last-shown step (persisted so resume restores the build-up)
     figureValues: {}, // { [baseKey]: { elementId: string } } — live [FIG:] value overrides (Phase T.5)
     figureAdditions: {}, // { [baseKey]: [{ id, label, sub }] } — live-appended iconrow items ([FIG: key :: add="..."])
+    figureRowAdditions: {}, // { [baseKey]: [{ id, label }] } — live-appended matrix ROWS ([FIG: key :: addrow="id|Label"]) for growRows matrices (values scorecard); learner-defined rows, capped at 8 total
     figureValuesHash: {}, // { [id]: string } — last-EMITTED values+additions hash, keyed by whatever's on canvas (base key, "key#instance", or a compare id), so a value change alone (no step/[SHOW:] change) still triggers a canvas frame
     figureInstances: {}, // { ["key#instanceId"]: { step, values } } — per-instance state (Phase T.4f Tier 2), independent of the base figure's own figureState/figureValues
     dynamicProgram: {}, // { ["stage.N"]: CanvasProgramEntry } — Stagehand-built figures/decks (Phase T.4f Tier 3), session-scoped, merged over pack.canvasProgram at resolve time
@@ -160,11 +162,25 @@ export async function ensureNextAsk(env, session, pack, prevText) {
   const lastUser = [...session.history].reverse().find((m) => m.role === 'user')
   const p = pack.pronouns
   return ensureAsk(env, {
-    persona: `You are the instructor running a hands-on course session with a learner (${p.subject}/${p.object}). Asks may be questions OR concrete actions in the app ("write your first pass in the memo pane", "hit Next on the deck").`,
+    persona: `You are the instructor running a hands-on course session with a learner (${p.subject}/${p.object}). Asks may be questions OR concrete next steps ("write your first pass in the memo", "size the gym idea next"). Name the work, never the interface — no "tap", "open the tab", "hit Next": you can't see ${p.possessive} screen layout.`,
     openObjectives: open,
     lastUserText: lastUser?.content,
     prevText,
   })
+}
+
+// Does the learner's message signal they want to STOP / END the session for now
+// (not just finish one sub-task)? A deterministic safety valve added after the
+// day-1 pilot trap: the never-orphan backstop kept appending "Let's keep going:
+// <objective>" against a learner who said "we're done"/"please stop" four times,
+// because required artifact gates were unmet so the session could never end. This
+// gate SUPPRESSES that append and lets the day close gracefully. Biased toward
+// catching a stop — a false positive merely skips ONE nag (the learner can keep
+// talking), which is always safer than trapping an exhausted learner.
+const STOP_INTENT_RE =
+  /\b(we'?re done|we are done|i'?m done|i am done|im done|are we done|that'?s (it|enough|all)( for (today|now))?|done (for (today|now|the day)|already)|finished (for )?(today|now|the day)|call it( a day)?|see (you|ya) (tomorrow|later|next time)|back tomorrow|start(ing)? tomorrow|(i'?ll|ill) be back|please stop|just stop|stop (saying|it|pushing|asking)|you keep (doing|saying|pushing)|(i'?m|im) (out|leaving|done)|good ?night)\b/i
+export function detectStopIntent(text) {
+  return STOP_INTENT_RE.test(String(text || ''))
 }
 
 // Deterministic (no LLM, never fails) last-resort ask for the never-orphan
@@ -256,6 +272,7 @@ export function applyArtifactWrites(session, pack, writes, { conflictedIds = [] 
 // (FIG_RE tolerates '#'); this function does the '#' split.
 export function applyFigureValues(session, pack, figValues) {
   session.figureInstances ||= {}
+  session.figureRowAdditions ||= {}
   for (const { key, values } of figValues || []) {
     const hashIdx = key.indexOf('#')
     const base = hashIdx === -1 ? key : key.slice(0, hashIdx)
@@ -267,19 +284,50 @@ export function applyFigureValues(session, pack, figValues) {
     const spec = entry.payload?.spec || {}
     const validIds = new Set(figureElementIds(kind, spec))
 
-    let cur, addedList
+    let cur, addedList, rowAddList
     if (instanceId) {
       const instKey = `${base}#${instanceId}`
       const inst = (session.figureInstances[instKey] ||= { step: 0, values: {} })
       inst.values ||= {}
       cur = inst.values
       addedList = null // add= (iconrow item append) not supported per-instance in v1
+      rowAddList = null // addrow= (matrix row append) not supported per-instance
     } else {
       cur = (session.figureValues[base] ||= {})
       addedList = (session.figureAdditions[base] ||= [])
+      // Growable matrix (values scorecard): learner-defined rows appended at
+      // runtime via addrow=. Seed validIds with any rows already added in prior
+      // turns so this turn's cell writes onto them are accepted (not dropped as
+      // unknown ids). New rows added THIS turn extend validIds live, below.
+      if (kind === 'matrix' && spec.growRows) {
+        rowAddList = (session.figureRowAdditions[base] ||= [])
+        for (const r of rowAddList) {
+          for (const c of spec.cols || []) validIds.add(`${c.id}.${r.id}`)
+        }
+      } else {
+        rowAddList = null
+      }
     }
 
     for (const [id, val] of Object.entries(values || {})) {
+      if (id === 'addrow') {
+        // Reserved add-ROW command (growRows matrix only): "rowid|Row label".
+        // A learner-named value becomes a row on the values scorecard. Capped
+        // at the matrix 8-row shape budget; the new col.row cell ids register
+        // into validIds so scores landed the SAME turn aren't dropped.
+        if (!rowAddList) continue
+        const total = (spec.rows?.length || 0) + rowAddList.length
+        if (total >= 8) continue
+        const s = String(val)
+        const bar = s.indexOf('|')
+        const rid = (bar === -1 ? s : s.slice(0, bar)).trim()
+        const label = (bar === -1 ? '' : s.slice(bar + 1)).trim().slice(0, 40)
+        if (!MATRIX_ID_RE.test(rid) || !label) continue
+        if (rowAddList.some((r) => r.id === rid) || (spec.rows || []).some((r) => r.id === rid)) continue
+        rowAddList.push({ id: rid, label })
+        for (const c of spec.cols || []) validIds.add(`${c.id}.${rid}`)
+        continue
+      }
       if (id === 'add') {
         // Reserved add-item command (iconrow only): "Label|sub". Capped so a
         // figure never grows past the 6-item shape budget.
@@ -357,7 +405,7 @@ export function autoAdvanceShownFigureStep(pack, session, figValues) {
     const fullKey = instanceId ? `${base}#${instanceId}` : base
     if (fullKey !== curTarget) continue // landed on a different figure/instance — don't touch this one
     for (const id of Object.keys(values || {})) {
-      if (id !== 'add') valuedIds.add(id)
+      if (id !== 'add' && id !== 'addrow') valuedIds.add(id)
     }
   }
   if (!valuedIds.size) return
@@ -384,8 +432,12 @@ export function autoAdvanceShownFigureStep(pack, session, figValues) {
 
 // --- Ownership verifier (gate layer c) — Haiku, REQUIRED in v1 ---
 // Question is NOT "does content meet the rubric" (the Director can pass that);
-// it is "did the learner make the substantive decisions". Cached by content
-// hash so repeated tick attempts on unchanged content don't re-bill.
+// it is "does this document genuinely belong to the learner". SOFTENED after the
+// day-1 pilot trap (2026-07-07): the memos CONSOLIDATE work the learner already
+// did live (numbers/picks agreed on the boards + in chat), so the bar is
+// ownership-of-substance + engagement, NOT a heavy in-document rewrite — lean
+// PASS on close calls, FAIL only for genuine theater (see the prompt). Cached by
+// content hash so repeated tick attempts on unchanged content don't re-bill.
 // Fail-OPEN on call errors (a+b already held); fail-CLOSED on verdict fail.
 async function contentHash(text) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
@@ -421,7 +473,7 @@ export async function prepareOwnershipVerdicts(env, session, pack, attemptedIds,
         messages: [
           {
             role: 'user',
-            content: `Did the learner make the substantive changes and decisions in this document — their own numbers, picks, and reasons, consistent with what they said in chat — rather than cosmetically accepting a drafted version? Trivial or junk edits over a director draft = fail. Judge the diff and the chat, not prose quality.\n\nRUBRIC for a good document: ${gate.rubric || '(none)'}\n\nDIRECTOR DRAFT (what the instructor drafted, if anything):\n"""\n${draft.slice(0, 3000)}\n"""\n\nFINAL CONTENT (as it stands now):\n"""\n${art.content.slice(0, 3000)}\n"""\n\nLEARNER'S RECENT CHAT TURNS:\n${learnerTurns || '(none)'}\n\nAnswer as STRICT JSON only: {"pass": true|false, "reason": "<=140 chars"}`,
+            content: `You are checking that a session document genuinely BELONGS TO THE LEARNER — not that it is polished or complete. Crucial context: the learner did the underlying work LIVE this session — the numbers, picks, and reasoning were established WITH them in the chat and on the shared boards, and this memo CONSOLIDATES that live work. So it does NOT need heavy rewriting to be theirs; the substance is already theirs if it traces to what they actually said and decided.\n\nPASS if the document reflects the learner's OWN established figures, picks, and reasoning from the chat/boards AND they have engaged with it (edited, corrected, personalized, or confirmed it as theirs). Light edits are fine when the substance already traces to the learner's live work. This is a supportive learning context — when it is a genuine close call, lean PASS.\n\nFAIL only for real theater: a generic or instructor-invented document whose substance does NOT trace to anything the learner actually said or decided; numbers/picks that CONTRADICT what the learner established in chat; or a memo about an option the learner EXPLICITLY REJECTED. An unfilled optional section or imperfect prose is NOT a fail on its own.\n\nRUBRIC (what a strong doc contains — for context, NOT a pass requirement): ${gate.rubric || '(none)'}\n\nDIRECTOR DRAFT (what the instructor drafted, if anything):\n"""\n${draft.slice(0, 3000)}\n"""\n\nFINAL CONTENT (as it stands now):\n"""\n${art.content.slice(0, 3000)}\n"""\n\nLEARNER'S RECENT CHAT TURNS (their live work — treat as the source of ownership):\n${learnerTurns || '(none)'}\n\nAnswer as STRICT JSON only: {"pass": true|false, "reason": "<=140 chars"}`,
           },
         ],
       })
@@ -523,9 +575,18 @@ function validateStageSpec(parsed) {
 export async function runStagehand(env, pack, session, request) {
   session.dynamicProgram ||= {}
   session.stageBuildCount ||= 0
+  // Cost + drift guardrail: count this ATTEMPT up front, BEFORE spending any model
+  // call, so failed builds count toward the cap too (review #3). Each failed build
+  // spends up to two calls — a Haiku attempt then a Sonnet-5+thinking retry — and
+  // the Director is told to "try a different approach", inviting another [STAGE:]
+  // next turn; counting only successes let the cap never trip, bounding cost only
+  // by the ~80-turn budget. The counter also names the dynamicProgram key, so a
+  // failed attempt legitimately consumes a (non-contiguous) key slot.
   if (session.stageBuildCount >= STAGE_MAX_BUILDS) {
     return { ok: false, reason: `stage-build cap reached (${STAGE_MAX_BUILDS}/session) — use an authored target, an instance, or compare() instead` }
   }
+  session.stageBuildCount += 1
+  const buildNo = session.stageBuildCount
 
   const basePrompt = `A live tutoring session needs a visual that doesn't exist in the authored material. Build it now, as DATA (never as prose or explanation).
 
@@ -577,8 +638,7 @@ ${STAGE_SCHEMA_SUMMARY}`
 
   if (errors.length) return { ok: false, reason: errors[0] }
 
-  const key = `stage.${session.stageBuildCount + 1}`
-  session.stageBuildCount += 1
+  const key = `stage.${buildNo}`
   const entry = toStageCanvasEntry(parsed)
   session.dynamicProgram[key] = entry
   return { ok: true, key, entry, request, spec: parsed }
@@ -646,7 +706,7 @@ TICKING (server-verified — false ticks are rejected silently and re-surfaced t
 Use it two ways only: (1) consolidate what ${p.subject} already worked out in chat into the memo so ${p.subject} doesn't retype it; (2) prepopulate the template/shared structure when ${p.subject} starts a later arc. Write ONLY what ${p.subject} said or the template scaffold — leave ${p.possessive} numbers, picks, and reasons as blanks or [YOUR NUMBER] markers for ${p.object} to fill. The tick is honored once ownership is real: EITHER ${p.subject} edits the draft, OR the substance already came from ${p.possessive} own words in chat — then tick with ${p.possessive} words as evidence ([TICK: id :: "..."]) and the ownership check verifies it traces to what ${p.subject} said. NEVER leave [YOUR WORDS] placeholders and demand ${p.subject} retype things ${p.subject} already told you — fill them from ${p.possessive} chat words yourself and invite edits only if ${p.subject} wants changes. Retyping is not ownership; ${p.possessive} words are. Place the [ARTIFACT:] block at the END of your turn, after your chat prose.
 Tick at most ${MAX_NEW_TICKS_PER_TURN} boxes per turn.
 
-CANVAS. Change what's on the canvas with [SHOW: <target>] — one per turn, place it where the change should happen. Valid targets: ${targets.join(', ')}${artifactTargets.length ? `, ${artifactTargets.join(', ')}` : ''}. Unknown targets are ignored. Figures build in steps — advance with [SHOW: <key>@<step>]; steps (and element ids) for each figure are listed with its target above, and a plain [SHOW: <key>] resumes where the figure left off. Once a real number or fact behind a figure element gets established in chat, put it on the figure in the SAME turn with [FIG: <key> :: <id>=<value>] (comma-separate multiple id=value pairs; quote a value that itself contains a comma, e.g. [FIG: figure.tamsamsom :: som="$3,600/yr (his count)"]); unknown ids are ignored, never guessed. To add a new item to an icon-row figure (max 6 total), use [FIG: <key> :: add="Label|short sub"]. THE CANVAS MUST TRACK THE CONVERSATION. When discussion moves to a figure's next stage, advance it with [SHOW: key@step] IN THAT TURN; when a real number gets established in chat for a figure element, put it on the figure with [FIG: key :: id=value] in that turn — a stale canvas while the chat moves on is a failure. The server makes newly-valued elements visible — if you're already showing the figure a value lands on, it auto-advances to the step that value belongs to and the frame updates with no [SHOW:] needed; your job is only to emit [FIG:] the moment a number/entry is agreed, never wait to be asked. The envelope tells you what's showing now; don't re-show it. A background sweep (the Scribe) also catches clearly-established values you forget to tag — it is a backstop for mistakes, not a substitute for the habit: emitting [FIG:] yourself, the same turn a value is agreed, remains your job.
+CANVAS. Change what's on the canvas with [SHOW: <target>] — one per turn, place it where the change should happen. Valid targets: ${targets.join(', ')}${artifactTargets.length ? `, ${artifactTargets.join(', ')}` : ''}. Unknown targets are ignored. Figures build in steps — advance with [SHOW: <key>@<step>]; steps (and element ids) for each figure are listed with its target above, and a plain [SHOW: <key>] resumes where the figure left off. Once a real number or fact behind a figure element gets established in chat, put it on the figure in the SAME turn with [FIG: <key> :: <id>=<value>] (comma-separate multiple id=value pairs; quote a value that itself contains a comma, e.g. [FIG: figure.tamsamsom :: som="$3,600/yr (his count)"]); unknown ids are ignored, never guessed. To add a new item to an icon-row figure (max 6 total), use [FIG: <key> :: add="Label|short sub"]. THE CANVAS MUST TRACK THE CONVERSATION. When discussion moves to a figure's next stage, advance it with [SHOW: key@step] IN THAT TURN; when a real number gets established in chat for a figure element, put it on the figure with [FIG: key :: id=value] in that turn — a stale canvas while the chat moves on is a failure. The server makes newly-valued elements visible — if you're already showing the figure a value lands on, it auto-advances to the step that value belongs to and the frame updates with no [SHOW:] needed; your job is only to emit [FIG:] the moment a number/entry is agreed, never wait to be asked. The envelope tells you what's showing now; don't pointlessly re-show unchanged material — but if ${p.subject} says ${p.subject} can't see it or asks where it is, re-emit [SHOW:] for it anyway (see NO UI COACHING). A background sweep (the Scribe) also catches clearly-established values you forget to tag — it is a backstop for mistakes, not a substitute for the habit: emitting [FIG:] yourself, the same turn a value is agreed, remains your job.
 
 INSTANCES. Any figure key above can be turned into an independent, reusable copy with [SHOW: <key>#<instanceId>] (instanceId: lowercase letters/digits/hyphens, ≤24 chars — e.g. [SHOW: figure.tamsamsom#gym@sam]). The FIRST time you show a "key#id", it's a fresh copy of that figure's authored spec; every later [SHOW:]/[FIG:] using the SAME "key#id" updates THAT instance only — the base figure and every other instance stay untouched. Use this whenever the same sizing/comparison tool needs to run more than once in a session for genuinely different things (e.g. TAM/SAM/SOM for each arc on his slate) instead of overwriting one shared figure.
 
@@ -658,7 +718,7 @@ WHO EDITS WHAT. Figures (scoreboard, circles, grids) are DISPLAY-ONLY for ${p.ob
 
 RENAMES. Swapping/renaming a slate item or scoreboard column: [FIG: <key> :: itemId="New Label|new sub|glyph"] — pipes split title|subtitle|icon (icon optional). Swap the icon too when the identity changes: ball, trophy, dice, circle-dollar, phone, cart, people, chart, clock, video, wrench, mask, tag, spark, grid. A plain value edits only the subtitle; never cram a new title into a sub.
 
-SEEN vs SHOWN. On a phone the canvas hides behind a tab — the envelope's live state carries a [VIEWED]/[NOT VIEWED YET] marker for the current material. Shown is not seen: if the marker says NOT VIEWED, do not treat the material as covered and do not tick a "${p.subject}'s seen X" box — tell ${p.object} plainly to open the Canvas tab and look, then verify from what ${p.subject} says about it.
+SEEN vs SHOWN. The envelope's live state carries a [VIEWED]/[NOT VIEWED YET] marker for the current material. Shown is not seen: if the marker says NOT VIEWED, do not treat the material as covered and do not tick a "${p.subject}'s seen X" box — invite ${p.object} to look at what you've put on the canvas, then verify from what ${p.subject} says about it. Invite by NAMING the material ("take a look at the scoreboard"), NEVER by describing where it is or how to reach it — see NO UI COACHING.
 
 LEARNER QUESTIONS & AGENCY — three standing rules:
 1. CLARIFYING QUESTIONS are always in scope. If ${p.subject} wants a term or concept from the course explained more deeply (what SWOT really means, why bottom-up beats top-down), teach it properly before moving on — depth on today's material is never drift.
@@ -678,6 +738,11 @@ EMPHASIS. When the working subject changes — a new arc, tool, or concept becom
 SAY-DO RULE. Never describe a canvas or artifact action without performing it in the SAME turn: "I'll draft the memo" requires the [ARTIFACT:] block in that turn; "let's look at X" requires [SHOW: x] in that turn; a number agreed requires its [FIG:] in that turn. Announcing without acting strands ${p.subject} on a stale canvas.
 
 MATCH CANVAS TO QUESTION SCOPE. The canvas must show the same scope you're asking about, in the same turn: a cross-cutting question (compare arcs, which surprised ${p.object}, decide between) requires the ALL-items surface ([SHOW: figure.scoreboard] or compare(...)); single-item work shows that item's surface. Asking a comparison question over a single-item canvas orients ${p.object} wrong.
+
+NO UI COACHING (you navigate the canvas — ${p.subject} never navigates it for you). You control the canvas ONLY through [SHOW:] — that is the whole of your power over it AND your responsibility for it. You CANNOT see ${p.possessive} screen and you do NOT know its layout (side-by-side, stacked, and a phone with the canvas on its own tab all coexist — you can't tell which ${p.subject} is on). Three hard rules:
+1. TAKE-ME-THERE IS ALWAYS A [SHOW:]. When ${p.subject} asks to see, compare, line up, or "go to" anything — or says ${p.subject} can't see/find it — the answer is [SHOW: <the germane target>] THAT TURN. If it's a compare-all moment, that's [SHOW: figure.scoreboard] or compare(...). You bring the material to ${p.object}; the app surfaces it. Never hand navigation back to ${p.object}.
+2. NEVER GIVE INTERFACE DIRECTIONS. Never mention a tab, button, menu, pill, or a place — no "open the Canvas tab", "tap over to", "swipe", "up top", "on the right", "it's loaded and waiting there". Those may not exist on ${p.possessive} layout, and naming one ${p.subject} can't find is the fastest way to lose ${p.possessive} trust.
+3. DESCRIBE THE ACTION, NOT THE SCREEN. Say what you DID — "I've put the full scoreboard up so we can line all three up" — never assert what ${p.subject} can or should see. If ${p.subject} still can't see it, just re-emit [SHOW:] and say you've brought it up again; never invent a reason, a tab, or a place to look.
 
 FINISH THE SURFACE. Never invite moving on (next arc, next memo, next canvas item) while the CURRENT figure/column has cells you already have material for — land them first, then transition. A column declared "complete" in chat must actually BE complete on the board in the same turn.
 
@@ -725,9 +790,14 @@ export function buildSessionEnvelope(session, pack, liveState, selection) {
     if (steps.length) figureNowLines.push(`  steps: ${steps.join(' | ')}`)
     const vals = isInstance ? session.figureInstances?.[curTarget]?.values : session.figureValues?.[curBase]
     const added = isInstance ? null : session.figureAdditions?.[curBase]
+    // Learner-named matrix rows (values scorecard): the model can't see its own
+    // past [FIG: :: addrow=] tags (control tags are stripped from history), so
+    // surface each row's id + label here — the id is what it scores cells with.
+    const rowAdded = isInstance ? null : session.figureRowAdditions?.[curBase]
     const valParts = [
       ...Object.entries(vals || {}).map(([id, v]) => `${id}=${v}`),
       ...(added || []).map((a) => `+${a.label}`),
+      ...(rowAdded || []).map((r) => `row:${r.id}="${r.label}"`),
     ]
     if (valParts.length) figureNowLines.push(`  current values: ${valParts.join(', ')}`)
     figureNowLines.push(`  if the conversation has moved past this step, or a number/fact just landed, advance/update NOW — [SHOW: ${curTarget}@step] / [FIG: ${curTarget} :: id=value].`)
@@ -915,8 +985,9 @@ function figureValuesHash(session, key) {
   }
   const v = session.figureValues?.[key]
   const a = session.figureAdditions?.[key]
-  if ((!v || Object.keys(v).length === 0) && (!a || a.length === 0)) return ''
-  return JSON.stringify([v || {}, a || []])
+  const ra = session.figureRowAdditions?.[key]
+  if ((!v || Object.keys(v).length === 0) && (!a || a.length === 0) && (!ra || ra.length === 0)) return ''
+  return JSON.stringify([v || {}, a || [], ra || []])
 }
 
 // Step position lives in figureState for base figures, and inside the
@@ -983,7 +1054,7 @@ export function resolveFigureDir(pack, session, target) {
   const merged = session.dynamicProgram && Object.keys(session.dynamicProgram).length
     ? { ...pack, canvasProgram: { ...pack.canvasProgram, ...session.dynamicProgram } }
     : pack
-  return resolveShowTarget(merged, target, session.artifacts, session.figureState, session.figureValues, session.figureAdditions, session.figureInstances)
+  return resolveShowTarget(merged, target, session.artifacts, session.figureState, session.figureValues, session.figureAdditions, session.figureInstances, session.figureRowAdditions)
 }
 
 // A snapshot key for a `compare` directive's underlying state (both sides'
@@ -1001,6 +1072,137 @@ function compareStateKey(session, dir) {
   return `${compareSideKey(session, dir.payload.a)}|${compareSideKey(session, dir.payload.b)}`
 }
 
+// --- SAY-DO repair backstop (deterministic; no model call) ---
+// The failure this closes (live pilot, turn ~88): the Director NARRATES a canvas
+// move ("I've put the full scoreboard up", "let me bring it up again") but emits
+// NO [SHOW:] tag — control-tag emission degrades in a very long context. The
+// canvas can't change on a tag that was never sent, so the learner is stranded
+// on stale material no matter how many times they ask. Per the project doctrine
+// (model compliance is a single point of failure — back it with a deterministic
+// server rule), when the Director's own prose CLAIMS a canvas show and it emitted
+// no [SHOW:], the server performs the show itself.
+//
+// Two tightly-scoped patterns, deliberately biased AGAINST false positives (an
+// over-eager repair yanks the canvas mid-conversation, which is worse than a
+// missed one):
+//   VISUAL — an inherently show-ish verb (re-show/re-load/shown/showing/show
+//     you|the|us/display) + a canvas noun close after: "re-shown the scoreboard",
+//     "display the board". Referencing prose ("the scoreboard shows 30M") has the
+//     noun BEFORE the verb, so it does not match.
+//   DIRECTIONAL — put/bring/pull ... but ONLY with the particle "up" AND either a
+//     canvas noun or an it/that object: "put the scoreboard up", "bring it up
+//     again", "pulling it back up". This is what excludes "pulled the numbers from
+//     your memo" (no "up") and "bring up a good point" (no noun / no it-that).
+const CLAIM_VISUAL_RE =
+  /\b(re-?shown|re-?showing|re-?show|re-?loaded|re-?loading|re-?load|shown|showing|show (?:you|the|us)|display(?:ed|ing)?)\b[\s\S]{0,45}?\b(canvas|scoreboard|score-?board|board|figure|chart|deck|slide|memo|comparison|side by side)\b/i
+const CLAIM_DIRECTIONAL_RE =
+  /\b(put|putting|bring|bringing|brought|pull|pulling|pulled)\b\s+(?:(?:it|that|them|these|those)\b[\s\S]{0,20}?\bup\b|[\s\S]{0,40}?\b(?:canvas|scoreboard|score-?board|board|figure|chart|deck|slide)\b[\s\S]{0,20}?\bup\b|\bup\b[\s\S]{0,25}?\b(?:canvas|scoreboard|score-?board|board|figure|chart|deck|slide)\b)/i
+//   LOOK/DEIXIS — the instructor pointing the learner at a canvas thing ("take a
+//   look at the gear memo", "here's the scoreboard", "open the deck"). Requires a
+//   canvas noun close after the pointer word, so plain deixis ("that's a good
+//   point", "here's the thing") does NOT fire.
+const CLAIM_LOOK_RE =
+  /\b(take a look at|have a look at|look at|check out|here'?s|here is|that'?s|that is|this is|open)\b[\s\S]{0,30}?\b(canvas|scoreboard|score-?board|scorecard|board|figure|chart|deck|slide|memo|comparison)\b/i
+
+export function detectClaimedShow(text) {
+  const t = (text || '').trim()
+  if (!t) return false
+  return CLAIM_VISUAL_RE.test(t) || CLAIM_DIRECTIONAL_RE.test(t) || CLAIM_LOOK_RE.test(t)
+}
+
+// Resolve WHICH target a claimed-but-untagged show refers to, deterministically.
+// Priority (an EXPLICITLY-named target must beat the focus default — the pilot
+// bug: the Director said "here's the decision memo" but the backstop showed the
+// scoreboard because that was the focus objective's default):
+//   0. a target the Director STAGED this turn (e.g. an artifact it just drafted)
+//      that the claim also names — the strongest signal ("I drafted X, here's X");
+//   1. the focus objective's OWN canvasDefault, when the claim names it (the usual
+//      "I've re-shown the scoreboard" — focus canvas AND named);
+//   2. any explicitly named target — the EARLIEST mentioned (a claim names its
+//      subject first: "here's the memo … then discuss translator/gear");
+//   3. a target staged this turn even if not named in prose;
+//   4. else the focus objective's canvasDefault (where the work is);
+//   5. else whatever's already the target (a forced re-deliver still helps — the
+//      client may not be showing it). null only when nothing resolves.
+// `prefer` = keys staged this turn (drafted-artifact ids as "artifact:<id>").
+export function resolveClaimedTarget(pack, session, text, prefer = []) {
+  const t = (text || '').toLowerCase()
+  const hits = [] // { key, pos } — position of the noun in the claim
+  for (const item of buildCanvasCatalog(pack, session)) {
+    const tail = String(item.key).split(/[.:]/).pop()?.toLowerCase()
+    if (tail && tail.length >= 4) {
+      const pos = t.indexOf(tail)
+      if (pos !== -1) hits.push({ key: item.key, pos })
+    }
+  }
+  const named = new Set(hits.map((h) => h.key))
+  for (const k of prefer) if (named.has(k)) return k // 0
+  const focusId = focusIdOf(pack, session)
+  const focusDefault = focusId ? pack.canvasDefaults?.[focusId] : null
+  if (focusDefault && named.has(focusDefault)) return focusDefault // 1
+  if (hits.length) return hits.sort((a, b) => a.pos - b.pos)[0].key // 2 (earliest)
+  if (prefer.length) return prefer[0] // 3
+  if (focusDefault) return focusDefault // 4
+  return session.canvasTarget || null // 5
+}
+
+// Constrained LLM resolver — the ROBUST primary for the miss-path (deterministic
+// prose→target matching kept missing edge phrasings: "take a look at the gear
+// memo", "line them up side by side"). Given the Director's message + the actual
+// catalog, a cheap Haiku call returns the ONE key the instructor is pointing the
+// learner at, or NONE. Output is validated against the catalog (a hallucinated
+// key is dropped), so it can never invent a target.
+//
+// TRI-STATE return (review P1) — the caller MUST distinguish these:
+//   <key>          — resolved target.
+//   RESOLVER_NONE  — the resolver RAN and judged there is no target (a purely
+//                    referential mention). The caller must SKIP repair — falling
+//                    through to the always-returns-something deterministic
+//                    resolver here would force a canvas yank on a false-positive
+//                    claim (the exact bug: "that's a sharp read on the scoreboard"
+//                    with no intent to navigate).
+//   null           — the resolver COULDN'T run (empty catalog / network / parse /
+//                    unmappable answer). The caller falls back to the deterministic
+//                    resolveClaimedTarget. Fail-open: an outage never blocks a turn.
+export const RESOLVER_NONE = 'NONE'
+export const RESOLVER_MODEL = SUMMARY_MODEL // claude-haiku-4-5 — cheap, single-shot
+export async function resolveClaimedTargetLLM(env, pack, session, text) {
+  const catalog = buildCanvasCatalog(pack, session)
+  if (!catalog.length) return null
+  const list = catalog.map((c) => `- ${c.key} — ${c.title} (${c.type})`).join('\n')
+  const system = `In a live tutoring session the instructor just referred to something on the shared canvas — or told the learner to look at it — but did NOT emit the tag that actually changes what's displayed. Decide WHICH ONE canvas target the instructor is pointing the learner at in THIS message.
+
+AVAILABLE TARGETS (reply with the exact key from the left column):
+${list}
+
+Guidance:
+- "the gear memo" → the sizing memo key for the gear arc; "the translator memo" → the translator arc's; "the decision memo" → the decision memo.
+- "the scoreboard" / "the board" / "the scorecard" / comparing arcs / "side by side" / "all three" → the scoreboard figure.
+- If the message compares or reviews multiple arcs together, choose the scoreboard.
+- If no target genuinely applies, answer NONE.
+
+Reply with ONLY the exact key, or NONE. Nothing else.`
+  let raw
+  try {
+    raw = await callAnthropic(env, {
+      model: RESOLVER_MODEL,
+      max_tokens: 40,
+      system,
+      messages: [{ role: 'user', content: `Instructor's message:\n"""\n${String(text).slice(0, 1500)}\n"""` }],
+    })
+  } catch {
+    return null
+  }
+  const ans = (raw || '').trim().replace(/[`"'.\s]+$/g, '').split(/\s+/).pop() || ''
+  if (!ans) return null // garbage/empty → let the deterministic heuristic try
+  if (/^none$/i.test(ans)) return RESOLVER_NONE // ran, judged no target → skip repair
+  const keys = new Set(catalog.map((c) => c.key))
+  if (keys.has(ans)) return ans
+  // Tolerate a near-miss (model echoed a key fragment) — exact tail match only.
+  const hit = catalog.find((c) => c.key.endsWith(ans) || `artifact:${ans}` === c.key)
+  return hit ? hit.key : null // unmappable → fall back to deterministic
+}
+
 // --- 3-tier canvas resolution for a settled turn ---
 // Tier 1: the model's [SHOW:] (validated). Tier 2: the new focus objective's
 // canvasDefault when focus advanced this turn. Tier 3: keep current (null) —
@@ -1016,7 +1218,7 @@ function compareStateKey(session, dir) {
 // treatment via compareStateKey (a step/value change on EITHER side re-emits;
 // a bare [FIG:] with no fresh [SHOW: compare(...)] this turn is NOT tracked —
 // known v1 scope limit, re-issue the [SHOW:] to refresh a live compare).
-export function resolveCanvasChange(pack, session, showTarget, focusBeforeId) {
+export function resolveCanvasChange(pack, session, showTarget, focusBeforeId, opts = {}) {
   session.figureValuesHash ||= {}
   session.figureInstances ||= {}
   if (showTarget) {
@@ -1035,7 +1237,14 @@ export function resolveCanvasChange(pack, session, showTarget, focusBeforeId) {
           : isCmp
           ? session.figureValuesHash[dir.id] === cmpKey
           : true)
-      if (!unchanged) {
+      // opts.requested = a SAY-DO repair (the Director narrated a canvas show but
+      // emitted no [SHOW:]) or any other force-deliver case. It ALWAYS emits —
+      // even when the server thinks the target is unchanged — because the learner
+      // demonstrably cannot see it (the client may be parked on a different pane,
+      // browsing, or holding an unaccepted pending frame). The `requested` flag
+      // rides the directive so the client DISPLAYS it immediately instead of
+      // queuing it politely behind a "Continue" pill.
+      if (!unchanged || opts.requested) {
         session.canvasTarget = dir.id
         if (isFig) {
           setFigureStep(session, dir.id, dir.payload.step)
@@ -1043,6 +1252,7 @@ export function resolveCanvasChange(pack, session, showTarget, focusBeforeId) {
         } else if (isCmp) {
           session.figureValuesHash[dir.id] = cmpKey
         }
+        if (opts.requested) dir.requested = true
         return dir
       }
       return null // re-shown current target at its current step + values — no change

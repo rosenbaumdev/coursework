@@ -211,6 +211,19 @@ export default function SessionView() {
     setPendingSelection(null)
   }, [canvasId])
 
+  // A `requested` live frame (server SAY-DO repair) must land in front of the
+  // learner: clear any history/contents browse override that would otherwise mask
+  // it, and on narrow bring the canvas tab forward. Keyed on the live directive's
+  // object identity — a fresh frame each turn — so it fires once per delivery, not
+  // on incidental re-renders. (Non-requested frames fall through the guard.)
+  useEffect(() => {
+    if (!liveDirective?.requested) return
+    setHistoryViewId(null)
+    setBrowsedDirective(null)
+    if (isNarrow) setActiveTab('canvas')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveDirective])
+
   // Mobile navigation is EXPLICIT, not automatic: we never yank the learner off
   // the chat mid-read. Instead the chat shows a "Continue to <asset>" button when
   // new canvas material is up and unseen; the canvas shows "Back to chat". A

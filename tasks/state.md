@@ -1,5 +1,53 @@
 # Coursework Tracker — Session State
-Last updated: 2026-07-07 (Phase T.4i)
+Last updated: 2026-07-07 (dev batch + values scorecard + adversarial review)
+
+## Session snapshot — 2026-07-07 (post Phase T.4i)
+ALL on the `coached-session-prototype` branch, dev-only, **HOLD RELEASE** (nothing
+deployed; prod coursework.kitbord.com still runs the prior canvas-resolver deploy).
+
+### Done this session (verified: pack 335 / engine 205 harness, `npm run build` clean)
+- **Dev batch #1–#6** (Jonathan's open comments): scroll-to-bottom button, platform-wide
+  comma formatting, follow-the-bottom streaming, thinking dots, sizing→Rev scoreboard row,
+  and **values scorecard** (#6). Details in `tasks/todo.md`.
+- **Values scorecard = growable-row matrix primitive** (`growRows` + `[FIG: :: addrow=]`),
+  `figure.values`, `values.named`/`values.weighed` objectives, VALUES DRIVERS masterPrompt
+  rule. Global primitive (Jonathan's call). See `decisions.md` 2026-07-07.
+- **Course Architect authoring instrument** — `docs/COURSE_AUTHOR_PROMPT.md`, published to
+  PUBLIC `main` (commit only that file), WebFetch-live at
+  raw.githubusercontent.com/rosenbaumdev/coursework/main/docs/COURSE_AUTHOR_PROMPT.md.
+- **Adversarial review** (multi-agent workflow) — 12 confirmed / 2 plausible / 1 refuted;
+  report at `scratchpad/ADVERSARIAL_REVIEW.md`. **Fixed 9 of the findings:** top 5 (#1
+  artifact-body tag leak, #2 comma-format corruption, #5 requested-yank, #6 streaming
+  dead-band, #11 values board empty state) + tier 2 (#3 Stagehand cost cap, #4 409 stale
+  canvas, #7 nested-bracket leak via balanced scanner, P1 SAY-DO tri-state resolver).
+  Remaining: #8,#9,#10,#12,P2 (all LOW / by-design / self-only) — listed in `tasks/todo.md`.
+
+- **🚨 Day-1 pilot trap (Zachary) FIXED + his live session closed.** He got stuck at the end
+  (13/18 objectives, but 4 required memo gates unmet → never-orphan nag looped "Let's keep
+  going" against his "please stop" 4×). Fixes: softened ownership verifier (credits live
+  board work), `detectStopIntent` + graceful exit (nag suppressed on stop; day closes at
+  ≥70% required + stop-intent). His live prod day-1 marked completed/endedIncomplete (13/18
+  ticks preserved). Details: `tasks/todo.md` "Day-1 pilot trap". His session is on OLD prod
+  code — the engine fix only helps future sessions once the batch ships.
+
+### DEPLOYED to prod 2026-07-07 ✅
+`npm run deploy` shipped the full batch to coursework.kitbord.com (bundle index-j4ku3k7_.js,
+verified HTTP 200; /zachary/session 200). Live now: pilot-trap fix (graceful exit + softened
+verifier), values scorecard, all dev-batch + review fixes (top 5 + tier 2). Deployed from an
+UNCOMMITTED working tree (wrangler warned) — prod code is not yet captured in any git commit.
+
+### Next session starts here
+1. **Commit the deployed state** to `coached-session-prototype` so prod matches a git commit
+   (currently uncommitted — the one real loose end).
+2. Optional: the 5 remaining LOW findings (#8 ownership verifier fail-open, #9 foldHistory
+   injection, #10 ungated discuss ticks, #12 matrix column-step auto-advance, P2 Scribe
+   provenance) — most are by-design or self-cheat-only; revisit with the auth/report phases.
+3. Note: all work lives on `coached-session-prototype`, NOT merged to `main` (main = old
+   tracker + the one author doc). The dev batch + all fixes are UNCOMMITTED in the working tree.
+
+---
+
+## Phase T.4i — Contents Menu (self-navigation) + SCRIBE (new cast member) — COMPLETE (2026-07-07)
 
 ## Phase T.4i — Contents Menu (self-navigation) + SCRIBE (new cast member) — COMPLETE (2026-07-07)
 Two green-lit builds fixing "Director as single point of failure" (owner

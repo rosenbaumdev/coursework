@@ -100,7 +100,10 @@ function resolveMergedSpec(pack, session, key) {
   const kind = entry.payload?.kind
   const authoredSpec = entry.payload?.spec || {}
   const values = instanceId ? session.figureInstances?.[key]?.values : session.figureValues?.[base]
-  const added = instanceId ? null : session.figureAdditions?.[base]
+  // Matrix additions are learner-named ROWS (values scorecard); other kinds use
+  // iconrow item additions. Mirror resolveShowTarget so the Scribe sweeps the
+  // same rows the canvas shows.
+  const added = instanceId ? null : kind === 'matrix' ? session.figureRowAdditions?.[base] : session.figureAdditions?.[base]
   const spec = mergeFigureValues(kind, authoredSpec, values, added)
   return { kind, spec }
 }

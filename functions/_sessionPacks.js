@@ -396,7 +396,7 @@ const SLATE_SPEC = {
 
 // Live sizing SCOREBOARD (Phase T.4h — replaces the document-first sizing
 // flow): his three slate arcs as columns (ids match SLATE_SPEC's item ids —
-// same arcs, one namespace), TAM/SAM/SOM/Gap/Gut as rows beneath each. Cells
+// same arcs, one namespace), TAM/SAM/SOM/Rev/Gap/Gut as rows beneath each. Cells
 // start empty ("—" placeholder client-side) and fill live as numbers/facts get
 // agreed in chat, one [FIG: figure.scoreboard :: <col>.<row>=<value>] per
 // agreed cell (masterPrompt Sizing rules, below). The per-arc memos become
@@ -413,9 +413,31 @@ const SCOREBOARD_SPEC = {
     { id: 'tam', label: 'TAM' },
     { id: 'sam', label: 'SAM' },
     { id: 'som', label: 'SOM' },
+    { id: 'rev', label: 'Rev' },
     { id: 'gap', label: 'Gap' },
     { id: 'gut', label: 'Gut' },
   ],
+  cells: {},
+}
+
+// Live VALUES SCORECARD (Phase T.4h+ — the non-scale axis of the bake-off): the
+// SAME three arc columns as the sizing scoreboard, but the ROWS are the
+// learner's OWN values, named by him and appended at runtime (growRows) via
+// [FIG: figure.values :: addrow="id|Label"] — 3-5 of them. Each cell is a 1-5
+// fit score for that arc against that value, plus a short why in parens, landed
+// live like any scoreboard cell ([FIG: figure.values :: <col>.<row>=value]).
+// This is the reusable "values-aware decision" primitive: sizing sizes the
+// market; this scores fit-to-what-he-cares-about, so the final pick weighs BOTH.
+// Cols share the scoreboard's arc ids so cell references read in parallel.
+const VALUES_SPEC = {
+  title: 'Values scorecard — how each arc fits what matters to you (1–5)',
+  growRows: true, // rows are learner-named at runtime; starts empty
+  cols: [
+    { id: 'translator', label: 'AI Investing Translator', sub: 'his idea' },
+    { id: 'gear', label: 'AI Gear Comparison', sub: 'golf / soccer picks' },
+    { id: 'community', label: 'Peer Finance Community', sub: 'translator + his people' },
+  ],
+  rows: [],
   cells: {},
 }
 
@@ -502,19 +524,28 @@ Teaching rules:
 Sizing rules — work the LIVE SCOREBOARD, not a document:
 - The boba example lives on figure.tamsamsom ONLY. The scoreboard columns are HIS three arcs — never park practice numbers there, and always name which arc a number belongs to before landing it.
 - His three arcs (translator, gear, community) sit as side-by-side columns on
-  one scoreboard figure, TAM/SAM/SOM/Gap/Gut rows beneath each. This REPLACES
+  one scoreboard figure, TAM/SAM/SOM/Rev/Gap/Gut rows beneath each. This REPLACES
   working one memo document at a time: the scoreboard is the shared workspace
   where the sizing actually happens; the memos come later, drawn from it.
 - The instant a number or fact for an arc is agreed in chat, land it on the
   board THAT SAME TURN with [FIG: figure.scoreboard :: <col>.<row>=<value>]
-  (col = translator|gear|community, row = tam|sam|som|gap|gut) — say-do, no
+  (col = translator|gear|community, row = tam|sam|som|rev|gap|gut) — say-do, no
   exceptions. "Gap" is the one-line named-competitor gap from the landscape
   work; "Gut" is his 1-10 score for that arc plus one line why.
+- "Rev" is the REVENUE OPPORTUNITY — the point of sizing is a monetary read, not
+  just a headcount. Right after SOM lands for an arc, turn it into money WITH him:
+  SOM × a price he picks × the cadence that fits THIS arc's model and the project's
+  real horizon (the 6-week build window, or a monthly run-rate if that's how the
+  arc earns) — always state the assumption in the cell, e.g.
+  "$3,600 / 6 wks (240 × $5 × 3 buys)" or "$720/mo (240 × $3 sub)". Keep the basis
+  consistent enough across the three that the comparison is honest, and land it on
+  the rev row the same turn it's agreed. If an arc genuinely can't monetize in the
+  window, say so and put "~$0 (why)" — a zero is a real, decision-relevant answer.
 - Work the board in whatever order the conversation earns — don't force a
   rigid row-by-row or column-by-column march — but because three columns are
   live in parallel, ALWAYS name which arc you're asking about in the ask
   itself; an unnamed question is ambiguous the moment more than one is open.
-- Once an arc's column reads complete (all five rows filled and he's
+- Once an arc's column reads complete (all six rows filled and he's
   confirmed them), CONSOLIDATE that arc's memo FROM the scoreboard: in the
   same turn, draft [ARTIFACT: sizing.<arc>] pulling the agreed scoreboard
   values plus the SWOT/GTM ground already covered in chat, then
@@ -522,6 +553,33 @@ Sizing rules — work the LIVE SCOREBOARD, not a document:
   it his — the tick gate (edited-after-your-draft + ownership check) is
   unchanged; the scoreboard just means he never retypes a number already
   agreed live.
+
+VALUES DRIVERS (the non-scale axis of the bake-off — do NOT skip). The biggest
+market is not automatically the right build for HIM. A choice this personal — the
+arc that shapes his next six weeks — must be weighed on what he actually values,
+not TAM alone. Two beats, and he will NOT volunteer this on his own, so you draw
+it out:
+- FRONT, before sizing: ask him directly what would make a build worth it TO HIM
+  beyond the money — would he actually use it himself, does it help people he
+  cares about (his team, the friends who ask him about stocks), will he learn the
+  most, can he sustain it through the 6-week build, does it look serious on a
+  college application. Get 3-5 in HIS words, one at a time (direct questions, not
+  "what are your values?"). Land each as a row on the values scorecard THE SAME
+  TURN with [FIG: figure.values :: addrow="short-id|His phrasing"] (id is
+  lowercase-hyphen, e.g. would-use, helps-my-people, learn-most; ONE addrow per
+  tag — emit a separate [FIG:] tag for each value), then
+  [SHOW: figure.values] so he sees his own criteria take shape. These are HIS —
+  never invent a value he didn't say (same ownership rule as the arcs).
+- TAIL, at the decision: score each arc 1-5 against every value WITH him — ask
+  "translator, on 'would you actually use it', 1 to 5?" and land it with
+  [FIG: figure.values :: <arc>.<value-id>=4 (one-line why)]. Fill every cell; a
+  half-scored board can't decide anything. Then, before the memo, put BOTH boards
+  in view and make him weigh them together — the sizing numbers AND the fit — out
+  loud. If the biggest-market arc is not the best-fit arc, name that tension
+  plainly and make him resolve it; never let the largest TAM silently win.
+- The scorecard cells format like the scoreboard: the score, then its reason in
+  parentheses — "5 (I'd open it every day)". Read locked scores from the board
+  verbatim, same as any figure value.
 
 How to work with him, from his interview:
 - Ask DIRECT questions, not open-ended ones. "How many kids at your school have
@@ -569,14 +627,16 @@ How to work with him, from his interview:
 - [ ] R discuss tools.gtm.seen — GTM spelled out (Go-To-Market): channel, first-10-users plan, and why-they-pay — grounded in distribution he already has (his school, his team, the friends who ask him about stocks).
 
 ## 4. Size the slate
-- [ ] R artifact sizing.translator — A sizing memo for the AI Investing Translator exists and is HIS: TAM/SAM/SOM/Gap/Gut worked out live on the sizing scoreboard, then consolidated into a draft and edited/owned by him — assumptions on every number, 3 named competitors + the gap, top SWOT entries, first GTM move.
+- [ ] R discuss values.named — BEFORE sizing, he's named 3-5 things that genuinely matter to HIM in choosing what to build, beyond market size — e.g. would he actually use it himself, does it help people he cares about, will he learn the most, can he sustain it through the 6-week build, does it look serious on an application — each landed as a row on the values scorecard in his own words.
+- [ ] R artifact sizing.translator — A sizing memo for the AI Investing Translator exists and is HIS: TAM/SAM/SOM/Rev/Gap/Gut worked out live on the sizing scoreboard, then consolidated into a draft and edited/owned by him — assumptions on every number, a revenue read for the project window, 3 named competitors + the gap, top SWOT entries, first GTM move.
 - [ ] R artifact sizing.gear — The same memo for slate slot 2 (default: the AI Gear Comparison Tool) — scoreboard work consolidated into a draft he then edited and owns.
 - [ ] R artifact sizing.community — The same memo for slate slot 3 (default: the Peer Finance Community) — scoreboard work consolidated into a draft he then edited and owns.
 - [ ] B check sizing.compare — Looking at the filled scoreboard side by side, he's said which arc surprised him — where the numbers came out different than his gut expected.
 
 ## 5. Decide
-- [ ] R artifact decision.memo — The decision memo exists: chosen arc, top 3 reasons each tied to a number or fact from his sizing memos (not vibes), the switch condition ("what would have to be true for me to change to the runner-up"), and the first build step.
-- [ ] R check decision.defended — He's answered a direct challenge to his decision (strongest counter-argument from his own memos) with sizing-grounded reasoning, not just restated preference.
+- [ ] R check values.weighed — Each arc has been scored 1-5 against every value on the scorecard WITH him (his score, his one-line why), and he's weighed the pick on BOTH axes out loud — the sizing numbers AND the values fit — not market size alone.
+- [ ] R artifact decision.memo — The decision memo exists: chosen arc, top 3 reasons each tied to a number or fact from his sizing memos OR a values-scorecard fit (not vibes), the switch condition ("what would have to be true for me to change to the runner-up"), and the first build step.
+- [ ] R check decision.defended — He's answered a direct challenge to his decision (strongest counter-argument from his own memos) with reasoning grounded in his sizing numbers and values fit, not just restated preference.
 
 ## 6. Wrap
 - [ ] R discuss wrap.recap — He's heard a playback of what he did today — the field explored, a slate sized, one decision, his reasons — and had the chance to correct it.
@@ -1004,6 +1064,16 @@ document.addEventListener('click', function (e) {
       title: 'Sizing scoreboard',
       payload: { kind: 'matrix', spec: SCOREBOARD_SPEC },
     },
+    // Live values scorecard (the non-scale axis) — learner-named value rows
+    // added at runtime via [FIG: figure.values :: addrow="id|Label"], each arc
+    // scored 1-5 per value ([FIG: figure.values :: col.row=value]). The bake-off
+    // weighs THIS board (fit) alongside the scoreboard (scale). See the VALUES
+    // DRIVERS masterPrompt rule + canvasDefaults.
+    'figure.values': {
+      type: 'figure',
+      title: 'Values scorecard',
+      payload: { kind: 'matrix', spec: VALUES_SPEC },
+    },
     // Live, updatable slate (dynamic slate, Phase T.5) — same SLATE_SPEC as
     // deck.brief's slide 2, but addressable directly with [SHOW: figure.slate]
     // and updatable in real time with [FIG: figure.slate :: add="Label|sub"]
@@ -1107,10 +1177,14 @@ The first concrete thing tomorrow's session builds.`,
     // Sizing phase defaults to the LIVE SCOREBOARD (Phase T.4h), not a memo
     // pane — the artifact only comes up when the Director explicitly
     // consolidates a completed column and [SHOW: artifact:sizing.<arc>]s it.
+    // Values scorecard is the germane surface for naming values (front) and
+    // weighing the pick's fit (tail) — the non-scale axis of the bake-off.
+    'values.named': 'figure.values',
     'sizing.translator': 'figure.scoreboard',
     'sizing.gear': 'figure.scoreboard',
     'sizing.community': 'figure.scoreboard',
     'sizing.compare': 'figure.scoreboard',
+    'values.weighed': 'figure.values',
     'decision.memo': 'artifact:decision.memo',
     'decision.defended': 'artifact:decision.memo',
     'wrap.recap': 'deck.brief',
@@ -1121,7 +1195,7 @@ The first concrete thing tomorrow's session builds.`,
       title: 'Sizing memo — AI Investing Translator',
       format: 'markdown',
       minChars: 400,
-      rubric: 'Bottom-up TAM/SAM/SOM with an assumption written next to each number, 3 named competitors + the gap, one genuine entry per SWOT quadrant, a nameable channel + first-10 plan, and a gut score — not a restated template.',
+      rubric: 'Bottom-up TAM/SAM/SOM with an assumption written next to each number, a revenue read (SOM turned into money for the project window), 3 named competitors + the gap, one genuine entry per SWOT quadrant, a nameable channel + first-10 plan, and a gut score — not a restated template.',
     },
     'sizing.gear': {
       title: 'Sizing memo — slate slot 2 (default: AI Gear Comparison)',
@@ -1296,8 +1370,10 @@ export function figureElementIds(kind, spec) {
 //   quadrant   — quadrantId APPENDS a new item to that quadrant (a live entry
 //                landing in real time, not an overwrite of an authored one)
 //   iconrow    — itemId sets that item's `sub`; `added` appends new items
-//   matrix     — "colId.rowId" sets that cell's value (overlays spec.cells;
-//                `added` unused — matrix has no runtime add-column mechanism)
+//   matrix     — "colId.rowId" sets that cell's value (overlays spec.cells); a
+//                bare colId RENAMES that column; `added` APPENDS learner-named
+//                ROWS on a growRows matrix (the values scorecard) — no runtime
+//                add-COLUMN mechanism
 export function mergeFigureValues(kind, spec, values, added) {
   if (!values && !(added && added.length)) return spec
   const v = values || {}
@@ -1363,7 +1439,11 @@ export function mergeFigureValues(kind, spec, values, added) {
         col.label = cv
       }
     }
-    return { ...spec, cols, cells: { ...(spec.cells || {}), ...cells } }
+    // `added` = learner-named ROWS on a growRows matrix (values scorecard),
+    // appended after the authored rows; never guessed, deduped upstream, capped
+    // at the 8-row shape budget. Non-growRows matrices pass no additions.
+    const rows = added && added.length ? [...(spec.rows || []), ...added.map((a) => ({ id: a.id, label: a.label }))] : spec.rows
+    return { ...spec, cols, rows, cells: { ...(spec.cells || {}), ...cells } }
   }
   return spec
 }
@@ -1435,13 +1515,13 @@ const COMPARE_RE = /^compare\(\s*([^,()]+)\s*,\s*([^,()]+)\s*\)$/
 // is `{ a: <CanvasDirective>, b: <CanvasDirective> }`. If either side fails to
 // resolve, the whole compare fails (null) — tier-3 keeps whatever was already
 // showing rather than rendering a half-broken compare.
-export function resolveShowTarget(pack, target, artifacts, figureState, figureValues, figureAdditions, figureInstances) {
+export function resolveShowTarget(pack, target, artifacts, figureState, figureValues, figureAdditions, figureInstances, figureRowAdditions) {
   if (!target) return null
 
   const cm = target.match(COMPARE_RE)
   if (cm) {
-    const a = resolveShowTarget(pack, cm[1].trim(), artifacts, figureState, figureValues, figureAdditions, figureInstances)
-    const b = resolveShowTarget(pack, cm[2].trim(), artifacts, figureState, figureValues, figureAdditions, figureInstances)
+    const a = resolveShowTarget(pack, cm[1].trim(), artifacts, figureState, figureValues, figureAdditions, figureInstances, figureRowAdditions)
+    const b = resolveShowTarget(pack, cm[2].trim(), artifacts, figureState, figureValues, figureAdditions, figureInstances, figureRowAdditions)
     if (!a || !b) return null
     return { type: 'compare', id: `compare(${a.id},${b.id})`, title: `${a.title} vs ${b.title}`, payload: { a, b } }
   }
@@ -1494,7 +1574,14 @@ export function resolveShowTarget(pack, target, artifacts, figureState, figureVa
     }
   }
   const values = instanceId ? figureInstances?.[instKey]?.values : figureValues?.[base]
-  const additions = instanceId ? undefined : figureAdditions?.[base] // add= not supported per-instance in v1
+  // `additions` feeds mergeFigureValues' per-kind append slot: iconrow items for
+  // an iconrow, learner-named ROWS for a growRows matrix (values scorecard).
+  // Neither is supported per-instance in v1.
+  const additions = instanceId
+    ? undefined
+    : entry.payload?.kind === 'matrix'
+      ? figureRowAdditions?.[base]
+      : figureAdditions?.[base]
   const mergedSpec = mergeFigureValues(entry.payload?.kind, entry.payload.spec, values, additions)
   const title = instanceId ? `${entry.title} — ${instanceId}` : entry.title
   return { type: 'figure', id: instKey, title, payload: { ...entry.payload, spec: mergedSpec, step } }
@@ -1537,7 +1624,7 @@ const ID_RE = /^[a-z0-9][a-z0-9.\-]*$/i // no commas (TICK comma-split) or ':' (
 // matrix col/row id charset — deliberately excludes '.' (unlike ID_RE above):
 // a [FIG:] cell key joins "colId.rowId" on the dot, so a dot INSIDE either id
 // would make that join ambiguous to split back apart.
-const MATRIX_ID_RE = /^[a-z0-9-]+$/i
+export const MATRIX_ID_RE = /^[a-z0-9-]+$/i
 
 // Legacy shape: returns the ERRORS array only ([] = valid). Delegates to the
 // full validator; callers that care about authoring-taste WARNINGS (e.g. a deck
@@ -1731,8 +1818,11 @@ export function validateFigureSpec(kind, spec, err) {
     if (!Array.isArray(spec.cols) || spec.cols.length < 2 || spec.cols.length > 4) {
       err('matrix spec.cols must be an array of 2-4 columns')
     }
-    if (!Array.isArray(spec.rows) || spec.rows.length < 1 || spec.rows.length > 8) {
-      err('matrix spec.rows must be an array of 1-8 rows')
+    // growRows matrices (values scorecard) start empty and grow at runtime via
+    // [FIG: :: addrow=] — allow 0 rows; the runtime append is capped at 8.
+    const rowMin = spec.growRows ? 0 : 1
+    if (!Array.isArray(spec.rows) || spec.rows.length < rowMin || spec.rows.length > 8) {
+      err(`matrix spec.rows must be an array of ${rowMin}-8 rows`)
     }
     const colIds = checkEls(spec.cols, 'col')
     const rowIds = checkEls(spec.rows, 'row')

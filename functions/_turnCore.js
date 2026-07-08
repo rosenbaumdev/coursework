@@ -18,13 +18,16 @@ export const MAX_NEW_TICKS_PER_TURN = 2
 // --- Control tags a model may append to a turn (all backend-only, never shown) ---
 const SUGGESTED_RE = /\[SUGGESTED_REPLIES:([^\]]*)\]/i
 const TICK_RE = /\[TICK:([^\]]*)\]/gi
-const TABLE_RE = /\[TABLE:\s*([^:\]]+?)\s*::\s*([^\]]*)\]/gi
 const SHOW_RE = /\[SHOW:\s*([^\]]+?)\s*\]/gi
-// Runtime figure value injection (grammar reserved in fable-collab-figures-
-// review.md §2.4, promoted forward): [FIG: <baseKey> :: id=value, id2=value2].
-// Same key::payload shape as TABLE_RE; the payload is a comma-separated list of
-// id=value pairs (quoted-value tolerant — see parseFigValuePairs).
-const FIG_RE = /\[FIG:\s*([^:\]]+?)\s*::\s*([^\]]*)\]/gi
+// TABLE ([TABLE: <objectiveId> :: <note>]) and FIG ([FIG: <baseKey> :: <pairs>])
+// carry a `header :: payload` whose payload may contain arbitrarily NESTED bracket
+// groups — a note or value that quotes the tag grammar, e.g. "[SHOW: figure.x [y]]".
+// A regex CANNOT balance brackets to arbitrary depth: the old
+// `(?:\[[^\]]*\]|[^\]])*` payload handled exactly ONE level and truncated at the
+// inner `]` on a second, leaking the remainder as prose. So these two are parsed
+// by extractBalancedTags (a hand scan tracking bracket depth), not a regex.
+// (FIG's grammar is reserved in fable-collab-figures-review.md §2.4; its payload is
+// a comma-separated id=value list — quoted-value tolerant, see parseFigValuePairs.)
 // Stagehand request (Phase T.4f Tier 3): [STAGE: <one-line request>] — asks the
 // engine to build a figure/deck spec that doesn't exist in the authored
 // canvasProgram. Single-line by construction (no '\n' in the capture) so a
@@ -72,6 +75,63 @@ function parseFigValuePairs(raw) {
   return values
 }
 
+// Extract every `[<TAG>: header :: payload]` occurrence where the payload may
+// contain NESTED bracket groups. A hand scan (regex can't balance brackets):
+// from each opener, track bracket depth from the tag's own '[' until the matching
+// ']' at depth 0, so a payload that quotes the tag grammar to ANY depth is
+// captured whole — never truncated, never leaking its tail as prose (review #7).
+// Case-insensitive opener (tags are conventionally uppercase but the old regex
+// tolerated any case). Returns { header, payload, start, end } per match; `end`
+// is exclusive so callers can splice the span out of cleanText by position.
+function extractBalancedTags(text, tagName) {
+  const out = []
+  const open = `[${tagName}:`.toUpperCase()
+  const hay = text.toUpperCase()
+  let i = 0
+  while ((i = hay.indexOf(open, i)) !== -1) {
+    let depth = 0
+    let end = -1
+    for (let j = i; j < text.length; j++) {
+      const ch = text[j]
+      if (ch === '[') depth++
+      else if (ch === ']') {
+        depth--
+        if (depth === 0) {
+          end = j
+          break
+        }
+      }
+    }
+    if (end === -1) {
+      i += open.length // unterminated (max_tokens cutoff) — skip this opener
+      continue
+    }
+    const inner = text.slice(i + open.length, end)
+    const sep = inner.indexOf('::')
+    if (sep !== -1) {
+      out.push({
+        header: inner.slice(0, sep).trim(),
+        payload: inner.slice(sep + 2).trim(),
+        start: i,
+        end: end + 1,
+      })
+    }
+    i = end + 1
+  }
+  return out
+}
+
+// Splice a set of {start, end} spans out of `text` (end exclusive). Removed
+// right-to-left so earlier offsets stay valid as we cut.
+function removeSpans(text, spans) {
+  if (!spans.length) return text
+  let t = text
+  for (const s of [...spans].sort((a, b) => b.start - a.start)) {
+    t = t.slice(0, s.start) + t.slice(s.end)
+  }
+  return t
+}
+
 // Tick forms:
 //   [TICK: id]                — bare tick (comma-separated ids allowed)
 //   [TICK: id :: evidence]    — evidence-carrying tick: ONE id + a learner quote /
@@ -80,9 +140,57 @@ function parseFigValuePairs(raw) {
 // parseTurn returns `ticks` (ordered ids — shape unchanged for existing callers)
 // plus `evidence` ({ id: string }) and `show` (last [SHOW:] target or null).
 export function parseTurn(text) {
+  // Artifact writes are extracted from the RAW turn FIRST (the memo body IS the
+  // content), then artifact blocks are stripped BEFORE any other extractor runs.
+  // Everything below scans `stripped`, never `text`: a control tag the Director
+  // drafts INSIDE a memo body — an illustrative [FIG:]/[SHOW:]/[TICK:] in its
+  // methodology — must NOT fire as a live directive. Those bodies are removed
+  // from cleanText too, so if we parsed the raw text the canvas/figures would
+  // change with nothing visible in chat to explain it (silent desync). A real
+  // [SHOW: artifact:x] that sits OUTSIDE the block still lands (it survives the
+  // artifact strip). Last block wins per id, capped at 2 ids per turn.
+  const writesById = new Map()
+  for (const m of text.matchAll(ARTIFACT_RE)) {
+    const id = m[1].trim()
+    if (id) writesById.set(id, m[2])
+  }
+  const artifactWrites = [...writesById.entries()].slice(0, 2).map(([id, content]) => ({ id, content }))
+
+  let stripped = text.replace(ARTIFACT_RE, '')
+  const artifactTruncated = ARTIFACT_UNTERMINATED_RE.test(stripped)
+  if (artifactTruncated) stripped = stripped.replace(ARTIFACT_UNTERMINATED_RE, '')
+
+  // TABLE + FIG are the only free-form-payload tags — their notes/values can quote
+  // the tag grammar. Extract them FIRST with the balanced scanner, then REMOVE
+  // their spans so no OTHER extractor (TICK/SHOW/STAGE/SUGGESTED) sees a tag that
+  // was merely quoted inside a note (review #7: a "[SHOW:]" in a TABLE note must
+  // not fire a live canvas change). Order: strip TABLE spans → parse FIG on the
+  // remainder → strip FIG spans → the rest run on `core`. (TABLE notes are the
+  // free-text case; FIG payloads are structured id=value, so TABLE-first is the
+  // right precedence.)
+  const tableTags = extractBalancedTags(stripped, 'TABLE')
+  const tables = []
+  for (const { header, payload } of tableTags) {
+    if (header && payload) tables.push({ objectiveId: header, note: payload })
+  }
+  const afterTable = removeSpans(stripped, tableTags)
+
+  // Figure value injection: [FIG: <baseKey> :: id=value, ...]. Multiple tags
+  // for the same key are kept as separate entries (applied in order — later
+  // entries win on a repeated id); id validation against the figure spec
+  // happens at apply time (engine), not here.
+  const figTags = extractBalancedTags(afterTable, 'FIG')
+  const figValues = []
+  for (const { header, payload } of figTags) {
+    const key = header.trim()
+    const values = parseFigValuePairs(payload)
+    if (key && Object.keys(values).length) figValues.push({ key, values })
+  }
+  const core = removeSpans(afterTable, figTags)
+
   const ticks = []
   const evidence = {}
-  for (const m of text.matchAll(TICK_RE)) {
+  for (const m of core.matchAll(TICK_RE)) {
     const inner = m[1]
     const sep = inner.indexOf('::')
     if (sep !== -1) {
@@ -97,56 +205,26 @@ export function parseTurn(text) {
     }
   }
 
-  const tables = []
-  for (const m of text.matchAll(TABLE_RE)) {
-    const objectiveId = m[1].trim()
-    const note = m[2].trim()
-    if (objectiveId && note) tables.push({ objectiveId, note })
-  }
-
   let suggestions = []
-  const sm = text.match(SUGGESTED_RE)
+  const sm = core.match(SUGGESTED_RE)
   if (sm) {
     suggestions = sm[1].split('|').map((s) => s.trim()).filter(Boolean).slice(0, 4)
   }
 
   // Canvas directive: the LAST [SHOW:] in the turn wins (most recent intent).
   let show = null
-  for (const m of text.matchAll(SHOW_RE)) show = m[1].trim() || show
+  for (const m of core.matchAll(SHOW_RE)) show = m[1].trim() || show
 
   // Stagehand: the LAST [STAGE:] in the turn wins (a model emitting more than
   // one in a turn is noise, not intent — same "last wins" rule as [SHOW:]).
   let stage = null
-  for (const m of text.matchAll(STAGE_RE)) stage = m[1].trim() || stage
+  for (const m of core.matchAll(STAGE_RE)) stage = m[1].trim() || stage
 
-  // Figure value injection: [FIG: <baseKey> :: id=value, ...]. Multiple tags
-  // for the same key are kept as separate entries (applied in order — later
-  // entries win on a repeated id); id validation against the figure spec
-  // happens at apply time (engine), not here.
-  const figValues = []
-  for (const m of text.matchAll(FIG_RE)) {
-    const key = m[1].trim()
-    const values = parseFigValuePairs(m[2])
-    if (key && Object.keys(values).length) figValues.push({ key, values })
-  }
-
-  // Artifact writes: last block wins per id, capped at 2 ids per turn.
-  const writesById = new Map()
-  for (const m of text.matchAll(ARTIFACT_RE)) {
-    const id = m[1].trim()
-    if (id) writesById.set(id, m[2])
-  }
-  const artifactWrites = [...writesById.entries()].slice(0, 2).map(([id, content]) => ({ id, content }))
-
-  let stripped = text.replace(ARTIFACT_RE, '')
-  const artifactTruncated = ARTIFACT_UNTERMINATED_RE.test(stripped)
-  if (artifactTruncated) stripped = stripped.replace(ARTIFACT_UNTERMINATED_RE, '')
-
-  const cleanText = stripped
+  // cleanText: `core` already has TABLE + FIG spans removed; strip the remaining
+  // non-nesting tags with their regexes.
+  const cleanText = core
     .replace(TICK_RE, '')
-    .replace(TABLE_RE, '')
     .replace(SHOW_RE, '')
-    .replace(FIG_RE, '')
     .replace(STAGE_RE, '')
     .replace(SUGGESTED_RE, '')
     .trim()

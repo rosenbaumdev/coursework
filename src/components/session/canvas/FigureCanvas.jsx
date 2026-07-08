@@ -530,7 +530,10 @@ function MatrixFigure({ spec, visible, entering }) {
   const cols = (spec.cols || []).filter(visible)
   const rows = spec.rows || []
   const cells = spec.cells || {}
-  const gridTemplateColumns = `minmax(96px, auto) repeat(${Math.max(cols.length, 1)}, minmax(112px, 1fr))`
+  // First track is bounded (1.5fr, not `auto`) so a long/unbreakable row label
+  // wraps instead of blowing the grid past maxWidth and forcing horizontal
+  // scroll; the label cell itself gets break-any (#11).
+  const gridTemplateColumns = `minmax(96px, 1.5fr) repeat(${Math.max(cols.length, 1)}, minmax(112px, 1fr))`
 
   return (
     <div className="w-full h-full overflow-auto flex flex-col items-center justify-center px-4 py-4">
@@ -544,9 +547,20 @@ function MatrixFigure({ spec, visible, entering }) {
               {c.sub && <div className="font-sans text-[10.5px] text-muted mt-1 leading-snug">{fmtFigureValue(c.sub)}</div>}
             </div>
           ))}
+          {/* Empty growable board (e.g. the values scorecard before any value is
+              named): show a muted placeholder row instead of a floating header
+              with no body (#11). */}
+          {rows.length === 0 && (
+            <div
+              className="py-4 text-center font-sans text-[12px] text-muted border-t border-rule"
+              style={{ gridColumn: '1 / -1' }}
+            >
+              {spec.growRows ? 'Rows appear here as you name them.' : 'Nothing on the board yet.'}
+            </div>
+          )}
           {rows.map((r) => (
             <Fragment key={r.id}>
-              <div className="pr-2 py-2.5 font-sans text-[11.5px] font-semibold uppercase tracking-[0.06em] text-muted border-t border-rule flex items-center">
+              <div className="pr-2 py-2.5 min-w-0 font-sans text-[11.5px] font-semibold uppercase tracking-[0.06em] text-muted border-t border-rule flex items-center break-words [overflow-wrap:anywhere]">
                 {r.label}
               </div>
               {cols.map((c) => {

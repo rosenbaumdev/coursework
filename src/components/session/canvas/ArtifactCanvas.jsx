@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { MD_COMPONENTS } from '../../markdown/readingMarkdown.jsx'
+import { commaFormatMarkdown } from '../../../lib/format.js'
 
 // Editable artifact: behaves like the tool it emulates — markdown (edit ↔ live
 // rendered preview), html (edit ↔ live iframe preview), or code (editable source).
@@ -42,33 +43,34 @@ export default function ArtifactCanvas({ payload, onLiveState }) {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-2 border-b border-rule bg-white">
-        <span className="text-sm font-semibold text-ink truncate">{payload.title || 'Artifact'}</span>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">{format}</span>
-          {canPreview && (
-            <div className="inline-flex rounded-md border border-rule p-0.5">
-              <button
-                type="button"
-                onClick={() => setMode('edit')}
-                className={`rounded px-2 py-0.5 text-[11px] font-medium ${
-                  mode === 'edit' ? 'bg-accent text-white' : 'text-muted hover:text-ink'
-                }`}
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode('preview')}
-                className={`rounded px-2 py-0.5 text-[11px] font-medium ${
-                  mode === 'preview' ? 'bg-accent text-white' : 'text-muted hover:text-ink'
-                }`}
-              >
-                Preview
-              </button>
-            </div>
-          )}
-        </div>
+      {/* No title here — the outer ContentCanvas header already owns the title,
+          the Point tool, and the type badge. This slim bar carries ONLY the
+          artifact's own controls (format + Edit/Preview), so the title isn't
+          painted twice. */}
+      <div className="shrink-0 flex items-center justify-end gap-2 px-4 py-1.5 border-b border-rule bg-white">
+        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">{format}</span>
+        {canPreview && (
+          <div className="inline-flex rounded-md border border-rule p-0.5">
+            <button
+              type="button"
+              onClick={() => setMode('edit')}
+              className={`rounded px-2 py-0.5 text-[11px] font-medium ${
+                mode === 'edit' ? 'bg-accent text-white' : 'text-muted hover:text-ink'
+              }`}
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('preview')}
+              className={`rounded px-2 py-0.5 text-[11px] font-medium ${
+                mode === 'preview' ? 'bg-accent text-white' : 'text-muted hover:text-ink'
+              }`}
+            >
+              Preview
+            </button>
+          </div>
+        )}
       </div>
 
       {payload.drafting && (
@@ -98,7 +100,7 @@ export default function ArtifactCanvas({ payload, onLiveState }) {
           <div className="h-full overflow-y-auto overflow-x-hidden p-5">
             <div className="max-w-2xl mx-auto">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
-                {content}
+                {commaFormatMarkdown(content)}
               </ReactMarkdown>
             </div>
           </div>

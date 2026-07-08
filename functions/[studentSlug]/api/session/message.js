@@ -33,6 +33,10 @@ import {
   makeTickGuard,
   rejectedTicks,
   resolveCanvasChange,
+  detectClaimedShow,
+  resolveClaimedTarget,
+  resolveClaimedTargetLLM,
+  RESOLVER_NONE,
   applyFigureValues,
   autoAdvanceShownFigureStep,
   runStagehand,
@@ -44,6 +48,7 @@ import {
   looksAnswerable,
   ensureNextAsk,
   fallbackAsk,
+  detectStopIntent,
   applyArtifactWrites,
   prepareOwnershipVerdicts,
   mirrorArtifacts,
@@ -288,19 +293,62 @@ export async function onRequestPost({ params, env, request }) {
           )
         }
 
+        // SAY-DO repair (deterministic backstop): if the Director narrated a
+        // canvas show but emitted NO [SHOW:] (nor did the Scribe/Stagehand set
+        // one above), perform the show it claimed. Long-context tag-emission
+        // degradation stranded the learner on a stale canvas across many turns
+        // in the pilot — this makes the canvas track the Director's OWN words
+        // regardless of whether the tag fired. Delivered as a `requested` frame
+        // (forced-emit + client displays immediately, no pending pill).
+        let forceRequested = false
+        if (!parsed.show && detectClaimedShow(cleanText)) {
+          // Robust primary: a constrained Haiku call resolves WHICH catalog target
+          // the Director is pointing at (handles "take a look at the gear memo",
+          // "line them up side by side" — phrasings regex kept missing). Tri-state
+          // (review P1): RESOLVER_NONE means the resolver RAN and judged there is no
+          // target — trust it and SKIP repair (a referential mention like "sharp
+          // read on the scoreboard" must NOT yank the canvas). Only a null (outage /
+          // unmappable) falls back to the always-returns-something deterministic
+          // resolver, with the just-drafted artifact as its strongest hint.
+          const llm = await resolveClaimedTargetLLM(env, pack, session, cleanText)
+          let repaired = null
+          if (llm === RESOLVER_NONE) {
+            repaired = null
+          } else if (llm) {
+            repaired = llm
+          } else {
+            const stagedKeys = artifactApplied.map((a) => `artifact:${a.id}`)
+            repaired = resolveClaimedTarget(pack, session, cleanText, stagedKeys)
+          }
+          if (repaired) {
+            parsed.show = repaired
+            forceRequested = true
+          }
+        }
+
         // 3-tier canvas: model [SHOW:] → new focus's default → keep current
         // (extended, Phase T.5: a live [FIG:] value change on the CURRENTLY-shown
         // figure still emits a frame even with no [SHOW:] this turn).
-        const canvasDirective = resolveCanvasChange(pack, session, parsed.show, focusBefore)
+        const canvasDirective = resolveCanvasChange(pack, session, parsed.show, focusBefore, {
+          requested: forceRequested,
+        })
         if (canvasDirective) controller.enqueue(frame({ type: 'canvas', directive: canvasDirective }))
+
+        // GRACEFUL EXIT (day-1 pilot fix): if the learner signalled they want to
+        // stop for now, NEVER append a "keep going" nag — that loop (appending
+        // "Let's keep going: <open objective>" after "we're done"/"please stop")
+        // is exactly what trapped and enraged the pilot learner when required
+        // artifact gates were unmet. Let the turn end on the Director's own words.
+        const stopIntent = detectStopIntent(message)
 
         // NEVER-ORPHAN GUARANTEE (#11): a turn must never trail off with nothing
         // to do, and must never settle on literally EMPTY text (a tags-only
         // turn). Usher backstop first (context-aware Haiku ask); if that also
         // comes back '' (network failure, or nothing left open), a deterministic
-        // fallback — never a network call — guarantees non-empty output.
+        // fallback — never a network call — guarantees non-empty output. Suppressed
+        // entirely when the learner is trying to stop (above).
         let usherAsk = ''
-        if (!cleanText || !looksAnswerable(cleanText)) {
+        if (!stopIntent && (!cleanText || !looksAnswerable(cleanText))) {
           usherAsk = (await ensureNextAsk(env, session, pack, cleanText)) || fallbackAsk(pack, session, canvasDirective)
           const sep = cleanText ? '\n\n' : ''
           controller.enqueue(frame({ type: 'delta', text: `${sep}${usherAsk}` }))
@@ -335,9 +383,23 @@ export async function onRequestPost({ params, env, request }) {
         session.lastSuggestions = suggestions
         session.seq += 1
 
-        const done =
-          isComplete(pack, session.inventoryState) && turnNo >= MIN_TURNS_BEFORE_COMPLETE
-        if (done) session.completed = true
+        // A day closes when every required objective is ticked (the real gate) OR
+        // — the graceful exit — the learner asks to stop AFTER the day has
+        // substantially happened (>=70% of required objectives done, past the turn
+        // floor). The learner is never trapped behind the last unmet gates; the
+        // session is marked ended-incomplete so the report stays honest about what
+        // wasn't finished, and tomorrow opens the next day instead of the trap.
+        const fullyComplete = isComplete(pack, session.inventoryState)
+        const prog = progressInfo(pack, session.inventoryState)
+        const substantial = prog.totalRequired > 0 && prog.ticked / prog.totalRequired >= 0.7
+        const gracefulEnd =
+          stopIntent && substantial && turnNo >= MIN_TURNS_BEFORE_COMPLETE
+        const done = (fullyComplete && turnNo >= MIN_TURNS_BEFORE_COMPLETE) || gracefulEnd
+        if (done) {
+          session.completed = true
+          session.endedAt = new Date().toISOString()
+          if (gracefulEnd && !fullyComplete) session.endedIncomplete = true
+        }
 
         // Window memory: fold aged turns into the running summary (inline,
         // never-throw; on failure we just carry full history one more turn).
