@@ -9,3 +9,9 @@ storage
 .dev.vars
 .claude/
 .wrangler/
+
+# Large media / screen recordings — keep on disk, never in git
+*.MOV
+*.mov
+*.mp4
+coursework-app.zip
