@@ -267,6 +267,13 @@ export default function LiveTerminal({ url, token, getToken, onStatus, onLiveSta
     // escape sequences (arrows/fn keys) are ignored so they don't corrupt the buffer.
     let lineBuf = ''
     const dataSub = term.onData((d) => {
+      // Drop mouse-tracking reports. When Claude Code shows an interactive list it turns
+      // on mouse reporting, so a screen tap becomes a click sequence that SELECTS whatever
+      // is under the finger — far too easy to mis-tap, especially on a phone. We never want
+      // a tap to act on the TUI; list navigation is via the keyboard / on-screen key pad.
+      // (Mouse reports are \x1b[M… (X10) or \x1b[<row;col;… M/m (SGR); no real keystroke
+      // starts that way, so this only strips mouse events.)
+      if (/^\x1b\[(M|<[0-9;]+[Mm])/.test(d)) return
       // Ctrl pad armed: turn the next single typed letter into Ctrl-<letter> (so a phone
       // keyboard can send Ctrl-C etc.), then disarm. Anything else passes through.
       let payload = d
