@@ -21,11 +21,11 @@ platform API key default (BYOK-ready). Capacity: cap = 3 concurrent active sessi
 **Phase II — session continuity + admin console + automated onboarding.** Ordered, de-risked build (authz is high-blast-radius, so it ships DARK behind `AUTHZ_ENFORCE` and is flipped only after grants are populated + verified, right before CF Access is widened). Detail in the plan file.
 
 II-1 — Authorization foundation (dark first):
-- [ ] `functions/_access.js` — `getEmail` (from `Cf-Access-Authenticated-User-Email`), grants store `admin/access.json` in INTERVIEW (`{admins:[], grants:{email:[slugs]}}`), `BOOTSTRAP_ADMINS` env, `getIdentity`/`canAccess`/`load|saveGrants`
-- [ ] `functions/api/me.js` — `{email, isAdmin, courses}`
-- [ ] `functions/_middleware.js` — extend: after PLAY_HOST/redirect, if `env.AUTHZ_ENFORCE` → default-deny (`/api/admin/*`→admin; `/<slug>/api/*`→canAccess|admin; `/api/me`+HTML/assets pass; no email on gated route→401). Public game host stays open (handled upstream).
-- [ ] deploy DARK (flag unset = no-op), set `BOOTSTRAP_ADMINS` secret (Jonathan's Access email), verify `/api/me` returns `isAdmin:true`
-- [ ] populate grants for current users (jordan→jordan, zachary→zachary), then flip `AUTHZ_ENFORCE=1`, verify fail-closed (ungranted email → 403), THEN Jonathan widens the CF Access policy
+- [x] `functions/_access.js` — identity from VERIFIED Access JWT (Cf-Access-Authenticated-User-Email is NOT forwarded to Pages; JWT is, via cf-access-jwt-assertion header). RS256 sig verified vs team JWKS + aud + iss + exp. Grants store `admin/access.json` in INTERVIEW; `BOOTSTRAP_ADMINS` env; `getIdentity`/`canAccess`/`isAdmin`/`load|saveGrants`. Team=flat-heart-d5af.cloudflareaccess.com, aud=d83de7fb… (env-overridable).
+- [x] `functions/api/me.js` — `{email, isAdmin, courses}` (+ `?debug=1` diagnostic)
+- [x] `functions/_middleware.js` — dark default-deny behind `AUTHZ_ENFORCE` (one getIdentity call; `/api/admin/*`→admin; `/<slug>/api/*`→admin|granted; `/api/me`+HTML pass; gated+no identity→401). Public game host untouched.
+- [x] deployed DARK, `BOOTSTRAP_ADMINS`=jonathan.rosenbaum@gmail.com secret set, PROVEN end-to-end through real Access (isAdmin:true, JWT sig verified) 2026-07-09
+- [ ] LATER (coordinated, after II-2): learner access comes from the registry (email→slug), so no hand-maintained grants for existing learners. Then flip `AUTHZ_ENFORCE=1`, verify fail-closed (ungranted email → 403), THEN Jonathan widens the CF Access policy. pages.dev fails closed by design (no Access → anon).
 II-2 — Runtime learner registry: `admin/registry.json` overlay on code seeds; `getStudent`/`getCourse` merge; client resolves unknown slugs via `api/student` (or fold into `me`)
 II-3 — Admin console (read-first): `/admin` route + `AdminView.jsx` + `functions/api/admin/*` — roster, per-learner progress + transcripts, "ask AI about this learner"; then invite/create-learner
 II-4 — Pull provisioning: `admin/provision-queue/*` in R2 + `workshop/provision-daemon.mjs` (root systemd) → runs `provision-user.sh`, writes `admin/provision-status/*`; invite flow end-to-end

@@ -61,8 +61,74 @@ export const STUDENTS = {
   },
 }
 
+// --- Runtime learner registry (Phase II-2) ---
+// Invited learners live in data (R2 admin/registry.json), overlaid on the code seeds
+// above so a new learner needs NO redeploy. Code seeds are authoritative on a slug clash
+// (jordan/zachary/zachary-test stay in code); the registry only ADDS slugs. getStudent
+// stays synchronous — primeStudents() (called once per request in _middleware) refreshes a
+// module-scoped merged map, so no caller has to become async.
+const REGISTRY_KEY = 'admin/registry.json'
+const REGISTRY_TTL_MS = 15_000
+
+let _merged = null
+let _mergedAt = 0
+
+// A registry entry { name, email, courseSlug, courseTitle?, mdFile?, r2Prefix?,
+// mirrorPrefix?, defaultArc?, workshop?, status? } → the STUDENTS shape.
+function registryToStudent(slug, e) {
+  return {
+    name: e.name || slug,
+    email: e.email || null,
+    status: e.status || 'active',
+    courses: [
+      {
+        slug: e.courseSlug,
+        title: e.courseTitle || e.courseSlug,
+        mdFile: e.mdFile || `${e.courseSlug}.md`,
+        r2Prefix: e.r2Prefix ?? `${slug}/`,
+        mirrorPrefix: e.mirrorPrefix ?? `${slug}/`,
+        ...(e.defaultArc ? { defaultArc: e.defaultArc } : {}),
+      },
+    ],
+    ...(e.workshop ? { workshop: e.workshop } : {}),
+    fromRegistry: true,
+  }
+}
+
+export async function loadRegistry(env, { fresh = false } = {}) {
+  try {
+    const obj = await env?.INTERVIEW?.get(REGISTRY_KEY)
+    const data = obj ? await obj.json() : null
+    return data && typeof data === 'object' ? data : {}
+  } catch {
+    return {}
+  }
+}
+
+export async function saveRegistry(env, registry) {
+  await env.INTERVIEW.put(REGISTRY_KEY, JSON.stringify(registry, null, 2))
+  _merged = null // force a refresh on next prime
+  return registry
+}
+
+// Refresh the merged (code seeds + registry) view. Cheap: cached for REGISTRY_TTL_MS and
+// only reads R2 on a cache miss. Never throws — a registry read failure just falls back to
+// the code seeds. Call once per request (middleware) before any getStudent.
+export async function primeStudents(env) {
+  const now = Date.now()
+  if (_merged && now - _mergedAt < REGISTRY_TTL_MS) return _merged
+  const registry = await loadRegistry(env)
+  const fromRegistry = {}
+  for (const [slug, e] of Object.entries(registry)) {
+    if (e && typeof e === 'object' && e.courseSlug) fromRegistry[slug] = registryToStudent(slug, e)
+  }
+  _merged = { ...fromRegistry, ...STUDENTS } // code seeds win on clash
+  _mergedAt = now
+  return _merged
+}
+
 export function getStudent(slug) {
-  return STUDENTS[slug] || null
+  return (_merged || STUDENTS)[slug] || null
 }
 
 // Resolves a (studentSlug → course) for the current single-course-per-student

@@ -6,6 +6,7 @@
 
 import { PLAY_HOST } from './_session.js'
 import { getIdentity } from './_access.js'
+import { primeStudents } from './_students.js'
 
 // Default-deny authorization (Phase II). Runs only when AUTHZ_ENFORCE is set, so the
 // code can ship DARK (deployed, no behavior change), be verified via /api/me, have grants
@@ -56,6 +57,10 @@ export async function onRequest({ request, env, next }) {
     dest.pathname = '/jordan' + url.pathname
     return Response.redirect(dest.toString(), 301)
   }
+
+  // Refresh the code-seed + registry merged view so registry-created learners resolve
+  // (getStudent stays sync everywhere). Cheap: 15s module cache, never throws.
+  await primeStudents(env)
 
   // App-side authorization — dark until AUTHZ_ENFORCE is set (see enforceAuthz above).
   if (env.AUTHZ_ENFORCE) {
