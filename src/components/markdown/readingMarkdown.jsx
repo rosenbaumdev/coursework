@@ -1,3 +1,18 @@
+// Fixed-width content (ASCII art, box-drawing diagrams, ASCII tables) must keep
+// horizontal scroll — wrapping destroys the layout. Everything else wraps so long
+// lines never scroll sideways. Box-drawing chars / table borders are the signal.
+function textOf(node) {
+  if (node == null) return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join('')
+  if (node.props?.children) return textOf(node.props.children)
+  return ''
+}
+function looksLikeAsciiRender(text) {
+  if (/[│─┌┐└┘├┤┬┴┼╭╮╰╯═║╔╗╚╝▁▔█▄▀▌▐░▒▓]/.test(text)) return true
+  return text.split('\n').some((l) => /[-]{3,}/.test(l) && /^[\s|+].*[|+][\s]*$/.test(l))
+}
+
 // Reading-material markdown map: headers render as muted mono section labels
 // (not conversational emphasis). Used by the day-card rich body and by the
 // coached-session ReadingCanvas so long-form course content looks consistent.
@@ -24,7 +39,13 @@ export const MD_COMPONENTS = {
       <code className="font-mono text-[12px]">{children}</code>
     ),
   pre: ({ children }) => (
-    <pre className="bg-inset border border-rule rounded-md p-3 overflow-x-auto text-[12px] mb-3">{children}</pre>
+    <pre
+      className={`bg-inset border border-rule rounded-md p-3 text-[12px] mb-3 ${
+        looksLikeAsciiRender(textOf(children)) ? 'overflow-x-auto' : 'whitespace-pre-wrap [overflow-wrap:anywhere]'
+      }`}
+    >
+      {children}
+    </pre>
   ),
   hr: () => <hr className="my-4 border-rule" />,
   table: ({ children }) => (

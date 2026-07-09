@@ -1,0 +1,21 @@
+# The single identity-aware proxy that fronts every per-user backend. Reads the
+# routing table from /opt/coursework/routes.json; reload after provisioning a new
+# user with `systemctl reload coursework-proxy` (sends SIGHUP, no dropped conns).
+# Runs as `coder` (unprivileged; it only forwards to localhost ports — it never
+# spawns a shell, so it needs no user privilege of its own).
+[Unit]
+Description=Coursework identity-aware proxy (path-routed /u/<user>/)
+After=network.target
+
+[Service]
+User=coder
+Environment=PROXY_PORT=9000
+Environment=ROUTES_FILE=/opt/coursework/routes.json
+WorkingDirectory=/opt/coursework/bridge
+ExecStart=/usr/bin/node /opt/coursework/bridge/proxy.cjs
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

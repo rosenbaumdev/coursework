@@ -57,6 +57,11 @@ import {
   MIN_TURNS_BEFORE_COMPLETE,
   SESSION_MODEL,
   SESSION_EFFORT,
+  injectLiveSurfaces,
+  hasLiveWorkshop,
+  loadGlance,
+  PROACTIVE_MAX_PER_SESSION,
+  PROACTIVE_MAX_TOKENS,
 } from '../../../_session.js'
 import { TANGENT_TABLE_ID } from '../../../_sessionPacks.js'
 
@@ -75,8 +80,6 @@ export async function onRequestPost({ params, env, request }) {
   } catch {
     return errorResponse('Invalid JSON body')
   }
-  const message = (body?.message || '').trim()
-  if (!message) return errorResponse('Empty message')
 
   const dayId = String(body?.day ?? '1')
   const pack = getSessionPack(course.slug, dayId)
@@ -87,6 +90,16 @@ export async function onRequestPost({ params, env, request }) {
     return errorResponse('No session in progress — start one first.', 404)
   }
   if (session.completed) return errorResponse('This session is already complete.', 409)
+
+  // Proactive terminal turn (#2/#4/#5): a lean, isolated path — SAME endpoint (client
+  // posts here) but it does NOT thread through the 450-line learner settle sequence
+  // (that's how drift happens). Budget-exempt, tick-inert, completion-inert.
+  if (body?.kind === 'proactive') {
+    return handleProactiveTurn({ env, studentSlug, courseSlug: course.slug, dayId, pack, session, body })
+  }
+
+  const message = (body?.message || '').trim()
+  if (!message) return errorResponse('Empty message')
 
   // Turn-sequence guard: a stale/duplicate submit (second tab, refresh replay)
   // must not silently drop or double-apply a turn. Client echoes the seq it
@@ -111,7 +124,10 @@ export async function onRequestPost({ params, env, request }) {
   )
 
   const focusBefore = focusIdOf(pack, session)
-  const system = `${buildSessionSystemPrompt(pack, session.studentName)}\n\n${buildSessionEnvelope(session, pack, body?.canvasLiveState, body?.selection)}`
+  // Observer's rolling terminal read (workshop days only) — so even a plain chat turn is
+  // oriented to what's happening in the build, not just to what the learner typed.
+  const glance = hasLiveWorkshop(pack) ? await loadGlance(env, studentSlug, course.slug, dayId) : null
+  const system = `${buildSessionSystemPrompt(pack, session.studentName)}\n\n${buildSessionEnvelope(session, pack, body?.canvasLiveState, body?.selection, { terminalSituation: glance?.situation })}`
   session.lastStageNote = null // one-shot — just folded into this turn's outgoing envelope
   const turnMessages = [...session.history, { role: 'user', content: message }]
 
@@ -332,7 +348,7 @@ export async function onRequestPost({ params, env, request }) {
         const canvasDirective = resolveCanvasChange(pack, session, parsed.show, focusBefore, {
           requested: forceRequested,
         })
-        if (canvasDirective) controller.enqueue(frame({ type: 'canvas', directive: canvasDirective }))
+        if (canvasDirective) controller.enqueue(frame({ type: 'canvas', directive: injectLiveSurfaces(canvasDirective, env, student) }))
 
         // GRACEFUL EXIT (day-1 pilot fix): if the learner signalled they want to
         // stop for now, NEVER append a "keep going" nag — that loop (appending
@@ -394,7 +410,12 @@ export async function onRequestPost({ params, env, request }) {
         const substantial = prog.totalRequired > 0 && prog.ticked / prog.totalRequired >= 0.7
         const gracefulEnd =
           stopIntent && substantial && turnNo >= MIN_TURNS_BEFORE_COMPLETE
-        const done = (fullyComplete && turnNo >= MIN_TURNS_BEFORE_COMPLETE) || gracefulEnd
+        const baseDone = (fullyComplete && turnNo >= MIN_TURNS_BEFORE_COMPLETE) || gracefulEnd
+        // Ship gate (#9): a requiresShip day (Day 2) can't finalize until the learner
+        // ships + signs off via /signoff. baseDone still surfaces the mandatory ship
+        // card on the client (awaitingShip) — completion just waits for the sign-off.
+        const awaitingShip = pack.requiresShip && baseDone && !session.signedOff
+        const done = baseDone && !awaitingShip
         if (done) {
           session.completed = true
           session.endedAt = new Date().toISOString()
@@ -416,6 +437,7 @@ export async function onRequestPost({ params, env, request }) {
             type: 'done',
             message: cleanText,
             sessionDone: Boolean(session.completed),
+            awaitingShip, // #9: server says "surface the mandatory ship card now"
             suggestions,
             seq: session.seq,
             canvasTarget: session.canvasTarget,
@@ -425,6 +447,123 @@ export async function onRequestPost({ params, env, request }) {
             // menu current without forcing a restart to see a new target.
             catalog: buildCanvasCatalog(pack, session),
             ...progressInfo(pack, session.inventoryState),
+          })
+        )
+      } catch (err) {
+        controller.enqueue(frame({ type: 'error', message: `Turn failed: ${err.message}` }))
+      } finally {
+        controller.close()
+      }
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+    },
+  })
+}
+
+// --- Proactive (terminal-triggered) turn — lean, isolated path -------------------
+// A short Director "glance over the shoulder" fired by a terminal EVENT, not a message.
+// Deliberately NOT threaded through the learner settle sequence above (that's how drift
+// creeps in): budget-exempt (increments proactiveTurns, NOT totalUserTurns), tick-inert
+// (no applyTurnEffects — the board only moves on real learner turns), completion-inert
+// (never ends the session or touches the ship gate). Buffered rather than live-streamed
+// so a [PASS] can never flash on screen. `seq` still increments so it serializes with
+// learner turns via the same guard.
+async function handleProactiveTurn({ env, studentSlug, courseSlug, dayId, pack, session, body }) {
+  const event = body?.event
+  if (!event || !event.type) return errorResponse('Proactive turn missing event')
+
+  // Defensive init for sessions created before these fields existed (additive v2).
+  if (session.proactiveTurns == null) session.proactiveTurns = 0
+  if (!session.explainedAffordances) session.explainedAffordances = {}
+
+  // Same seq guard as a learner turn — it serializes ALL turns. If a learner turn won
+  // the slot and bumped seq, this proactive post 409s and the client drops it silently.
+  const clientSeq = Number(body?.seq)
+  if (!Number.isInteger(clientSeq) || clientSeq !== session.seq) {
+    return new Response(
+      JSON.stringify({ error: 'Out of sync.', seq: session.seq }),
+      { status: 409, headers: { 'content-type': 'application/json' } }
+    )
+  }
+  // Hard per-session cap (backstop to the client-side rate policy).
+  if (session.proactiveTurns >= PROACTIVE_MAX_PER_SESSION) {
+    return errorResponse('Proactive limit reached for this session.', 429)
+  }
+
+  const focusBefore = focusIdOf(pack, session)
+  const glance = await loadGlance(env, studentSlug, courseSlug, dayId)
+  const system = `${buildSessionSystemPrompt(pack, session.studentName)}\n\n${buildSessionEnvelope(session, pack, body?.canvasLiveState, null, { proactiveEvent: event, terminalSituation: glance?.situation })}`
+  const userLine = `[TERMINAL EVENT — not a message from ${session.studentName}] ${event.type}: "${String(event.excerpt || '').slice(0, 600)}"`
+
+  let upstream
+  try {
+    upstream = await callAnthropicStream(env, {
+      model: SESSION_MODEL,
+      max_tokens: PROACTIVE_MAX_TOKENS,
+      thinking: { type: 'adaptive' },
+      effort: SESSION_EFFORT,
+      system,
+      messages: [...session.history, { role: 'user', content: userLine }],
+    })
+  } catch (err) {
+    return errorResponse(`Turn failed: ${err.message}`, 502)
+  }
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        // Buffer the whole reply (no live deltas) so a [PASS] never flashes on screen.
+        const full = await consumeAnthropicSSE(upstream, () => {})
+        const parsed = parseTurn(full)
+        const cleanText = parsed.cleanText.replace(/\[PASS\]/gi, '').trim()
+        const passed = cleanText === ''
+
+        session.seq += 1
+        session.proactiveTurns += 1
+
+        if (passed) {
+          // The Director judged the moment not worth words — no bubble, no history push.
+          session.transcriptLog.push({ role: 'assistant', source: 'proactive', event, passed: true, raw: full, ts: new Date().toISOString() })
+          await saveLesson(env, session)
+          controller.enqueue(frame({ type: 'done', proactive: true, passed: true, seq: session.seq }))
+          return
+        }
+
+        controller.enqueue(frame({ type: 'delta', text: cleanText }))
+
+        // The Director may legitimately re-show the workshop; honor a [SHOW:] if present.
+        if (parsed.show) {
+          const dir = resolveCanvasChange(pack, session, parsed.show, focusBefore, {})
+          if (dir) controller.enqueue(frame({ type: 'canvas', directive: injectLiveSurfaces(dir, env, student) }))
+        }
+
+        // First-time affordance memory (server-authoritative — "name it once", #2).
+        if (session.explainedAffordances[event.type] == null) {
+          session.explainedAffordances[event.type] = session.proactiveTurns
+        }
+
+        // Compact synthetic turn so the model stays consistent with its own visible
+        // words next turn; the window fold ages these out like any other turn.
+        session.history.push({ role: 'user', content: userLine })
+        session.history.push({ role: 'assistant', content: cleanText })
+        session.transcriptLog.push({ role: 'assistant', source: 'proactive', event, raw: full, show: parsed.show, ts: new Date().toISOString() })
+
+        await foldHistory(env, session)
+        await saveLesson(env, session)
+
+        controller.enqueue(
+          frame({
+            type: 'done',
+            proactive: true,
+            message: cleanText,
+            seq: session.seq,
+            explainedAffordances: session.explainedAffordances,
           })
         )
       } catch (err) {

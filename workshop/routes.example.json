@@ -1,0 +1,5 @@
+{
+  "default": { "appPort": 8080, "bridgePort": 7681 },
+  "zachary": { "appPort": 8081, "bridgePort": 7691 },
+  "jonathan": { "appPort": 8082, "bridgePort": 7692 }
+}

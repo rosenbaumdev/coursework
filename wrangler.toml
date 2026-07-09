@@ -2,6 +2,29 @@ name = "coursework"
 compatibility_date = "2025-12-01"
 pages_build_output_dir = "./dist"
 
+# Live-surface config for the Day-2 workshop (injectLiveSurfaces in _session.js).
+# The droplet's public origin — NOT secrets, just deployment config. Target end-state is
+# a STABLE named Cloudflare tunnel at workshop.kitbord.com (no churn); the same URL is
+# hardcoded as DEFAULT_VM_URL in _session.js so a failed [vars] binding can't strand the
+# viewer with an empty URL. INTERIM below = the live quick tunnel; flip BOTH these vars
+# AND DEFAULT_VM_URL to https://workshop.kitbord.com as the last step of the named-tunnel
+# setup (Part B), then this comment.
+# Shell-access secrets (SECRETS, set out-of-band, never committed here):
+#   - WORKSHOP_SIGNING_SECRET — the ONE shared HMAC secret used to mint signed, short-lived
+#     workshop tokens (functions/_workshopToken.js; the client fetches one per connect from
+#     /<slug>/api/session/workshop-token). Must EXACTLY match /etc/coursework/signing.env on
+#     the droplet. Rotating it invalidates all outstanding tokens. No per-user secrets.
+#     `wrangler pages secret put WORKSHOP_SIGNING_SECRET`.
+#   - TERMINAL_TOKEN — legacy shared static token; fallback only, for students on the legacy
+#     `default` route / pre-cutover. Retire once all bridges verify signed tokens.
+#   - (retired) TERMINAL_TOKEN_<USER> — per-user static tokens; replaced by signed tokens.
+# One origin for the VM: the droplet proxy (workshop/bridge/proxy.cjs) path-routes
+# `/u/<user>/` — HTTP → that user's viewer, WS-upgrade → that user's PTY bridge — so
+# every student shares this SINGLE tunnel/reference. Both vars are the same URL by design.
+[vars]
+TERMINAL_WS_URL = "https://eye-recruiting-views-kingston.trycloudflare.com"
+APP_VIEWER_URL = "https://eye-recruiting-views-kingston.trycloudflare.com"
+
 [[r2_buckets]]
 binding = "STORAGE"
 bucket_name = "coursework-assets"

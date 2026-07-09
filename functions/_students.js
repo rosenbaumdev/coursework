@@ -39,6 +39,25 @@ export const STUDENTS = {
         mirrorPrefix: 'zachary/',
       },
     ],
+    // Droplet workshop user (Day-2 live surface) → isolated /u/zachary backend.
+    workshop: { user: 'zachary' },
+  },
+  // Test clone of Zachary's world (seeded with his history) — for Jonathan to test
+  // days as him without touching Zachary's real data. Same display name on purpose.
+  'zachary-test': {
+    name: 'Zachary',
+    courses: [
+      {
+        slug: 'noob-to-ai-entrepreneur',
+        title: 'Noob to AI Entrepreneur',
+        mdFile: 'zachary-noob-to-ai-entrepreneur.md',
+        r2Prefix: 'zachary-test/',
+        mirrorPrefix: 'zachary-test/',
+      },
+    ],
+    // Jonathan's dev/QA workshop → isolated /u/jonathan backend, so testing as
+    // Zachary never lands in Zachary's real shell.
+    workshop: { user: 'jonathan' },
   },
 }
 

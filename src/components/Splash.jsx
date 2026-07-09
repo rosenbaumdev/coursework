@@ -2,8 +2,13 @@ export default function Splash() {
   return (
     <main className="min-h-screen bg-white flex items-center justify-center px-6">
       <div className="max-w-md">
+        <img
+          src="/coursework-logo-techy.png"
+          alt="Coursework"
+          className="h-9 w-auto mb-6"
+        />
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted mb-2">
-          Builder Coursework
+          Private course tracker
         </p>
         <h1 className="text-2xl font-semibold tracking-tight text-ink mb-3">
           You need a direct course URL

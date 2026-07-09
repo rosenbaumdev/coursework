@@ -1,0 +1,23 @@
+# Per-user PTY bridge. Template unit: `coursework-bridge@zachary` runs as unix
+# user `zachary`. The unix account IS the isolation boundary — this instance can
+# only ever touch zachary's home, files, tmux, and ~/.claude.
+#
+#   systemctl enable --now coursework-bridge@zachary
+[Unit]
+Description=Coursework PTY bridge for %i
+After=network.target
+
+[Service]
+User=%i
+# Per-user config (ports, WORKSHOP_USER, workspace) + the SHARED signing secret
+# (WORKSHOP_SIGNING_SECRET). The `-` makes signing.env optional so a box still running
+# legacy static tokens starts fine during cutover.
+EnvironmentFile=/etc/coursework/%i.env
+EnvironmentFile=-/etc/coursework/signing.env
+WorkingDirectory=/opt/coursework/bridge
+ExecStart=/usr/bin/node /opt/coursework/bridge/server.mjs
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

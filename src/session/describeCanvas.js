@@ -61,9 +61,14 @@ export function describeCanvas(directive, liveState) {
     case 'browser':
       return `A BROWSER pane. ${liveState || `Currently pointed at ${p.url || 'a page'}.`}`
     case 'terminal':
-      return `A TERMINAL — a simulated bash sandbox the learner can type commands into. ${
-        liveState || 'No commands run yet.'
-      }`
+      return p.mode === 'live'
+        ? `A LIVE TERMINAL — a real shell on the learner's own machine (droplet), where they run real commands and Claude Code. ${liveState || 'No commands run yet.'}`
+        : `A TERMINAL — a simulated bash sandbox the learner can type commands into. ${liveState || 'No commands run yet.'}`
+    case 'workshop':
+      // Never assert the app is "showing" just because a URL is configured — the app
+      // only appears once it's genuinely serving, and the viewer loads it itself then.
+      // The truthful terminal + VIEWER status arrives via liveState; defer to it.
+      return `The WORKSHOP — the learner's IDE: a LIVE terminal on their own machine (top) plus an app viewer (bottom) that loads their app automatically the moment it's actually serving. This is where they build. ${liveState || 'No commands run in the terminal yet, and nothing is serving in the viewer.'}`
     case 'figure': {
       const spec = p.spec || {}
       const steps = spec.steps || []

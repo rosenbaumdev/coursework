@@ -237,6 +237,10 @@ export function useSSESessionDriver(opts = {}) {
   const [sending, setSending] = useState(false)
   const [dayTitle, setDayTitle] = useState('')
   const [error, setError] = useState('')
+  // #9 ship gate: server says all objectives are done but this is a requiresShip day —
+  // the learner must ship + sign off before the session can complete. Drives the
+  // mandatory ShipCard in SessionView. Cleared when the session actually finalizes.
+  const [awaitingShip, setAwaitingShip] = useState(false)
   // Contents Menu (Build 1): every STATICALLY known navigable target for the
   // day (titles/types only — never full payloads), sent by the server in the
   // start payload and refreshed on each turn's `done` frame (a Stagehand
@@ -249,6 +253,12 @@ export function useSSESessionDriver(opts = {}) {
 
   const seqRef = useRef(0)
   const sendingRef = useRef(false)
+  // Proactive-turn coordination (#2/#4/#5): a proactive turn holds the shared slot so it
+  // can't race a learner turn (the R2 read-modify-write isn't locked). If the learner
+  // types while a proactive turn runs, we buffer it here and auto-send when the (short)
+  // proactive turn settles — learner-first, never eaten.
+  const proactiveInFlightRef = useRef(false)
+  const pendingLearnerRef = useRef(null)
   const startedRef = useRef(false)
   // Debounced learner-artifact sync: pending contents + timers, flushed before
   // each turn so the model's envelope sees current gate state.
@@ -334,6 +344,7 @@ export function useSSESessionDriver(opts = {}) {
       totalRequired: data.totalRequired || 0,
       focus: data.focus || '',
     })
+    setAwaitingShip(Boolean(data.awaitingShip))
     setPhase(data.sessionDone ? 'done' : 'active')
   }
 
@@ -464,7 +475,14 @@ export function useSSESessionDriver(opts = {}) {
 
   async function send(text) {
     const t = (text ?? '').trim()
-    if (!t || sendingRef.current || phase !== 'active') return
+    if (!t || phase !== 'active') return
+    if (sendingRef.current) {
+      // A PROACTIVE turn holding the slot must not eat the learner's input — buffer it
+      // and auto-send when that short turn settles. A learner turn in flight still just
+      // ignores the double-send as before.
+      if (proactiveInFlightRef.current) pendingLearnerRef.current = t
+      return
+    }
     // Consumption signal (owner rule): a queued canvas item auto-accepts when
     // the learner sends their next message — continuing the conversation means
     // they're done consuming what's on screen. Advancing on the INSTRUCTOR's
@@ -551,6 +569,7 @@ export function useSSESessionDriver(opts = {}) {
               totalRequired: evt.totalRequired || 0,
               focus: evt.focus || '',
             })
+            setAwaitingShip(Boolean(evt.awaitingShip))
             if (evt.sessionDone) setPhase('done')
           } else if (evt.type === 'error') {
             appendToLast(`\n\n_(${evt.message})_`)
@@ -566,6 +585,76 @@ export function useSSESessionDriver(opts = {}) {
     }
   }
 
+  // Proactive turn (#2/#4/#5): fired by the terminal Sentinel, not the learner. Best-effort
+  // by design — it never shows a "sending" spinner (the learner didn't act), never resyncs,
+  // and drops silently on any contention (409 = a learner turn won the slot; 429 = capped).
+  // Reuses the message endpoint with kind:'proactive'; the server keeps it budget/tick/
+  // completion-inert. buildContext({ peek:true }) reads the live terminal state WITHOUT
+  // consuming the learner's marquee selection.
+  async function sendProactive(event) {
+    if (!event || sendingRef.current || phase !== 'active') return
+    sendingRef.current = true
+    proactiveInFlightRef.current = true
+    let startedBubble = false
+    try {
+      const ctx = buildContext ? buildContext({ peek: true }) : { canvasContext: '' }
+      const res = await api('message', {
+        kind: 'proactive',
+        event,
+        seq: seqRef.current,
+        day,
+        canvasLiveState: ctx.canvasContext,
+      })
+      if (res.status === 409 || !res.ok || !res.body) return // lost the slot / capped → drop
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        let sep
+        while ((sep = buf.indexOf('\n\n')) !== -1) {
+          const raw = buf.slice(0, sep)
+          buf = buf.slice(sep + 2)
+          const dl = raw.split('\n').find((l) => l.startsWith('data:'))
+          if (!dl) continue
+          let evt
+          try {
+            evt = JSON.parse(dl.slice(5).trim())
+          } catch {
+            continue
+          }
+          if (evt.type === 'delta') {
+            // The Director spoke. Append a fresh assistant bubble (no user bubble — the
+            // learner didn't say anything). [PASS] turns send no delta → no bubble.
+            if (!startedBubble) {
+              startedBubble = true
+              setMessages((m) => [...m, { role: 'assistant', content: evt.text }])
+            } else appendToLast(evt.text)
+          } else if (evt.type === 'canvas') {
+            applyCanvasFrame(evt.directive)
+          } else if (evt.type === 'done') {
+            seqRef.current = evt.seq ?? seqRef.current + 1
+            // Proactive turns NEVER touch phase, awaitingShip, progress, or suggestions.
+          }
+          // evt.type === 'error' → ignore (best-effort).
+        }
+      }
+    } catch {
+      /* best-effort — swallow */
+    } finally {
+      sendingRef.current = false
+      proactiveInFlightRef.current = false
+      // A learner message that arrived mid-proactive was buffered — send it now.
+      const q = pendingLearnerRef.current
+      if (q) {
+        pendingLearnerRef.current = null
+        send(q)
+      }
+    }
+  }
+
   function restart() {
     setMessages([])
     setSuggestions([])
@@ -574,7 +663,14 @@ export function useSSESessionDriver(opts = {}) {
     setHistory([])
     setCatalog([])
     setArtifacts({})
+    setAwaitingShip(false)
     bootstrap(true)
+  }
+
+  // Called by the ShipCard after /signoff succeeds — the session is finalized server-side.
+  function markSignedOff() {
+    setAwaitingShip(false)
+    setPhase('done')
   }
 
   return {
@@ -588,11 +684,14 @@ export function useSSESessionDriver(opts = {}) {
     progress,
     sending,
     send,
+    sendProactive,
     dayTitle,
     error,
     restart,
     syncArtifact,
     catalog,
     artifacts,
+    awaitingShip,
+    markSignedOff,
   }
 }

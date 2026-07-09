@@ -1,28 +1,33 @@
 import { useEffect, useRef, useState } from 'react'
 import Bubble from './Bubble.jsx'
 
-// Scrollable message list. Streaming behavior = FOLLOW THE BOTTOM (Claude-style,
-// headless-verified): as a reply streams, the newest text stays pinned to the
-// bottom of the frame so the reader always sees what's being written. A manual
-// scroll-up stops the follow for the rest of the turn; the jump-to-bottom button
-// (#1) or the next turn re-arms it. (The earlier "grow-up-then-freeze-at-top"
-// spec pushed streaming text below the fold, which read as broken.)
+// Scrollable message list. Streaming behavior = GROW-UP-THEN-FREEZE-AT-TOP (spec #1,
+// ChatGPT/Claude-style): when a new reply starts, its bubble's TOP is scrolled to the
+// top of the frame and FROZEN there — the text then streams downward off the bottom,
+// so the reader reads from the top instead of being yanked to the bottom every tick.
+// A down-arrow appears whenever content sits below the fold; tapping it switches to
+// FOLLOW-BOTTOM for that turn (keeps newest text in view). A manual scroll frees the
+// view ('free' mode) — no more auto-steering until the next turn re-arms pin-top.
 // `trailing` renders after the last bubble inside the scroll flow (inline CTA).
 export default function ChatMessages({ messages, streamingLastEmpty, notice, trailing }) {
   const scrollRef = useRef(null)
   const prevCountRef = useRef(0)
   const lastSetRef = useRef(-1)
-  const userTookOverRef = useRef(false)
+  // Per-turn steering mode: 'pinTop' (default — freeze new bubble's top at frame top),
+  // 'followBottom' (reader tapped the down-arrow), 'free' (reader scrolled manually).
+  const modeRef = useRef('pinTop')
+  const lastBubbleRef = useRef(null) // DOM node of the newest message wrapper
   // #1 — show a jump-to-bottom affordance when the reader is scrolled up.
   const [atBottom, setAtBottom] = useState(true)
 
   const NEAR_BOTTOM_PX = 80
+  const TOP_GAP = 12 // breathing room above the pinned bubble
   useEffect(() => {
     const container = scrollRef.current
     if (!container) return
     const onScroll = () => {
       // A scroll we didn't set = the reader took over; stop steering this turn.
-      if (Math.abs(container.scrollTop - lastSetRef.current) > 4) userTookOverRef.current = true
+      if (Math.abs(container.scrollTop - lastSetRef.current) > 4) modeRef.current = 'free'
       const dist = container.scrollHeight - container.scrollTop - container.clientHeight
       setAtBottom(dist <= NEAR_BOTTOM_PX)
     }
@@ -30,11 +35,12 @@ export default function ChatMessages({ messages, streamingLastEmpty, notice, tra
     return () => container.removeEventListener('scroll', onScroll)
   }, [])
 
-  // Jump to the newest message and re-arm streaming-follow for this turn.
+  // The down-arrow: reveal below-the-fold content AND switch to follow-bottom so the
+  // rest of a long streaming reply keeps scrolling into view.
   function scrollToBottom() {
     const container = scrollRef.current
     if (!container) return
-    userTookOverRef.current = false
+    modeRef.current = 'followBottom'
     container.scrollTop = container.scrollHeight - container.clientHeight
     lastSetRef.current = container.scrollTop
     setAtBottom(true)
@@ -46,27 +52,44 @@ export default function ChatMessages({ messages, streamingLastEmpty, notice, tra
     const count = messages.length
     prevCountRef.current = count
     if (!container || !count) return
-    if (count > oldCount) userTookOverRef.current = false // new turn → follow resumes
-    if (userTookOverRef.current) {
-      // Follow is OFF (the reader scrolled up). The frame still grows under them
-      // as text streams, but growth fires no scroll event (overflowAnchor:none),
-      // so re-evaluate the jump-to-bottom affordance HERE — otherwise a small
-      // (5–79px) scroll-up strands the reader with text streaming off-screen and
-      // no button ever appears (#6 dead band: takeover fires at >4px, the button
-      // only at >80px, and nothing recomputed atBottom in between).
+    if (count > oldCount) modeRef.current = 'pinTop' // new turn → re-arm pin-top
+    const mode = modeRef.current
+
+    if (mode === 'free') {
+      // Reader is steering; just keep the jump-to-bottom affordance honest (growth
+      // fires no scroll event under overflowAnchor:none, so recompute atBottom here).
       const dist = container.scrollHeight - container.scrollTop - container.clientHeight
       setAtBottom(dist <= NEAR_BOTTOM_PX)
       return
     }
-    // Follow the bottom: keep the newest content in view as it streams. We are
-    // the only programmatic writer; lastSetRef lets the scroll listener tell our
-    // writes from a real reader scroll-up (which flips userTookOver, above).
-    const bottom = container.scrollHeight - container.clientHeight
-    if (Math.abs(bottom - container.scrollTop) > 1) {
-      container.scrollTop = bottom
-      lastSetRef.current = container.scrollTop
+
+    if (mode === 'followBottom') {
+      const bottom = container.scrollHeight - container.clientHeight
+      if (Math.abs(bottom - container.scrollTop) > 1) {
+        container.scrollTop = bottom
+        lastSetRef.current = container.scrollTop
+      }
+      setAtBottom(true)
+      return
     }
-    setAtBottom(true)
+
+    // mode === 'pinTop': align the newest bubble's TOP to the frame top (with a small
+    // gap), then let it stream downward off the fold. getBoundingClientRect keeps this
+    // correct regardless of offsetParent; once pinned, delta≈TOP_GAP so re-asserting
+    // each streaming tick is a no-op — the top stays rock-steady. A reader scroll flips
+    // mode to 'free' (onScroll), and a tall reply pushes text below the fold → arrow.
+    const node = lastBubbleRef.current
+    if (node) {
+      const delta = node.getBoundingClientRect().top - container.getBoundingClientRect().top
+      const max = container.scrollHeight - container.clientHeight
+      const target = Math.max(0, Math.min(container.scrollTop + delta - TOP_GAP, max))
+      if (Math.abs(container.scrollTop - target) > 1) {
+        container.scrollTop = target
+        lastSetRef.current = Math.round(target)
+      }
+    }
+    const dist = container.scrollHeight - container.scrollTop - container.clientHeight
+    setAtBottom(dist <= NEAR_BOTTOM_PX)
   }, [messages, streamingLastEmpty])
 
   return (
@@ -87,7 +110,7 @@ export default function ChatMessages({ messages, streamingLastEmpty, notice, tra
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col gap-4">
           {notice}
           {messages.map((m, i) => (
-            <div key={i}>
+            <div key={i} ref={i === messages.length - 1 ? lastBubbleRef : null}>
               <Bubble
                 role={m.role}
                 text={m.content}

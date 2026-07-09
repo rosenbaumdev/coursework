@@ -150,8 +150,20 @@
     0%, 100% { opacity: 1; }
     50% { opacity: 0.55; }
   }
+  /* Continue nudge: a finite accent RING pulse (not opacity — reads as "next
+     action", distinct from the answer chips) that keeps the card shadow. Finite
+     (4 beats) for the same iPad-compositor reason as .pulse-cue; replays on each
+     new pending frame since the button remounts. */
+  .continue-pulse {
+    animation: continuePulse 1.3s ease-in-out 4;
+  }
+  @keyframes continuePulse {
+    0%, 100% { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 0 0 0 rgba(26, 58, 92, 0); }
+    50% { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 0 0 5px rgba(26, 58, 92, 0.28); }
+  }
   @media (prefers-reduced-motion: reduce) {
     .pulse-cue,
+    .continue-pulse,
     .session-fade,
     .session-in-right,
     .session-in-left,

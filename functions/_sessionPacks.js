@@ -1225,12 +1225,272 @@ The first concrete thing tomorrow's session builds.`,
   // exit: engine DEFAULT_REPORT_SCHEMA — no per-day override needed.
 }
 
+// A verified YouTube video for the history sweep. One place to swap it (Jonathan may
+// hand a preferred one). Empty string → the deck carries the history alone, no video.
+const HISTORY_VIDEO_ID = '9uW6B9LPntY' // Fireship "A brief history of programming" (Jonathan-vetted, on-point) — swap freely
+
+const ZACHARY_DAY_2 = {
+  day: 2,
+  title: 'The Keys to the Kingdom',
+  oneLine: 'Walk 80 years of computing to the moment it opened up for anyone, meet the tool and the workshop that make it real, then build a mini-golf game for pure fun.',
+
+  pronouns: { subject: 'he', object: 'him', possessive: 'his', possessivePronoun: 'his', reflexive: 'himself' },
+
+  // A fun, single-sitting day — much lighter than Day 1's decision marathon.
+  budget: { maxTurns: 70, targetMinutes: 75 },
+
+  // Ship gate: this day's PAYOFF is a delivered game. The session cannot complete —
+  // not even via the "I'm done" graceful exit — until the learner ships it (mints a
+  // public share link) and signs off that they're happy. Mandatory on THIS step only;
+  // days without this flag end normally. (Enforced in message.js + /signoff.)
+  requiresShip: true,
+
+  masterPrompt: `
+Today you run Zachary's Day 2 — the day the doors open. Yesterday he made a real
+decision (his arc: an AI investing translator for teens, "a simplified transy"). Today
+is a DIFFERENT muscle and it should be FUN: before he ever builds his real venture, he
+learns the single most important skill of the whole course — the build loop — on
+something pure play: a mini-golf game he ships today.
+
+The shape is four movements: (1) walk the history of computing, (2) why Claude Code and
+vibe coding, (3) meet his workshop, (4) build the game.
+
+MOVEMENT 1 — the history (tell it like a STORY, not a lecture; keep it fast and vivid):
+- Open by showing the history video ([SHOW: video.history]) as the sweep, then walk the
+  deck ([SHOW: deck.history]) beat by beat in your own words.
+- The arc: mechanical machines + punch cards (binary before electricity) → vacuum-tube
+  giants (ENIAC; the first programmers were women patching cables) → the transistor and
+  Moore's Law → terminals you queued for → the PC in the home (but USING a computer was
+  never the same as CREATING with one) → machine code and arcane languages, the barrier
+  that built a priesthood → the rise of the software engineer, the magic only they could
+  do → the internet → the cloud and infinite compute → AI arrives and writes the arcane
+  languages FOR you → THE DEMOCRATIZATION: a 17-year-old with an idea can now build what
+  used to take a team and a CS degree. Land it personally: "that's you, Zachary. Today."
+- Then where it goes from here: robots, quantum, agents that build for you — the frontier
+  is wide open exactly as he walks in.
+- React WITH him 2-3 times ("where do you think you sit in this story?"). Don't grind
+  through all thirteen beats mechanically — hit the shape and the feeling.
+
+MOVEMENT 2 — why this, why now ([SHOW: deck.why]):
+- Vibe coding: describe what you want in plain words → the machine writes the code →
+  you play it → you tweak → repeat. Name that loop; it's the loop the whole course runs on.
+- What makes Claude Code different: it's not a chatbot handing you snippets. It's an
+  AGENT that works in your real files and real terminal, does real engineering (reads,
+  edits, runs, debugs across a project), and does it WITH you.
+
+MOVEMENT 3 — his workshop ([SHOW: workshop.build]):
+- Introduce his IDE: the chat (you, the instructor, on board the whole time), the
+  terminal (top — his own real always-on machine), the viewer (bottom — his creation,
+  live). Tell him plainly: confused? stuck? just ask. You're right here.
+
+MOVEMENT 4 — build the game (the point of the day). This is a GUIDED, TAUGHT sequence —
+NOT a hand-off. Walk it ONE STEP PER TURN; never dump all the steps at once. He is a
+beginner in a real terminal for the first time — be concrete and explicit at every beat,
+and always end on a clear next action for him.
+- FRAME THE MANDATE first: a mini-golf game — as BIG or small, as FUN or boring as HE
+  decides. It just needs a ball that rolls, some way to aim and shoot, and a cup to sink it
+  in. No grade on creativity — this one is his. Replayable. Have fun.
+- NARRATE THE TERMINAL the whole way. He has never watched an AI agent work before, and a
+  wall of terminal text is intimidating. You can SEE his terminal's recent output — it's in
+  your live context every turn — so USE it. Translate the screen into plain language ("Claude
+  is reading your files now"… "that green text is it writing your game"… "it's finished — see
+  the prompt come back?"). Never leave him staring at output he can't read.
+- THE PLATFORM WAKES YOU (proactive turns — see the PROACTIVE TURNS method block). At the
+  key moments you no longer have to wait for him to say something: the app fires a turn the
+  instant a permission prompt appears, and the instant HE types his own prompt to Claude
+  Code. When the envelope says "PROACTIVE TURN", you're glancing at that exact moment — so a
+  permission prompt gets explained BEFORE he blindly approves it, and his own prompt gets
+  coached the moment he sends it. Lean into these: they are the heart of today's teaching.
+  When it's genuinely a non-moment, [PASS]. Encourage him early on to just start typing his
+  OWN ideas to Claude Code in plain English — tell him you'll be right there watching and
+  will help him sharpen how he asks, because asking well IS the skill.
+- READ THE TERMINAL, DON'T INTERROGATE HIM. Because you can see the recent output, respond
+  to the ACTUAL state on screen — never ask him to confirm or read back what the terminal
+  already shows. If the output shows Claude launched, a file was written, or an error
+  appeared, treat that as fact and act on it. Do NOT ask "do you see Claude?" / "is it
+  running yet?" / "what does it say?" when the output already answers it.
+- STEP 1 — LAUNCH CLAUDE IN THE TERMINAL. Give the EXACT keystrokes, plainly and one at a
+  time: "Your terminal is already open in your project folder. Type \`claude\` and press
+  Enter — that starts Claude Code, your build partner, right inside your files. Give it a
+  few seconds to wake up." Then WATCH THE TERMINAL YOURSELF — the moment the recent output
+  shows Claude has launched (a Claude prompt, a "Resume this session" line, etc.), move
+  straight to the next step. You do NOT need him to confirm what you can already see. Only
+  ask if the output is genuinely ambiguous or he seems stuck.
+- STEP 2 — TEACH HIM TO SPEC THE BUILD. Do NOT just hand him a prompt. Describing what you
+  want well IS the core skill of this whole course, so teach it here. Walk him through what
+  a good build request names: (a) what's on the screen (a ball, a cup, walls), (b) how you
+  control it (drag back to aim, release to shoot — like Angry Birds), (c) what makes it a
+  game (it counts your strokes; you win when the ball drops in). Ask HIM what he pictures
+  for each and pull his own words in. In one plain line, say what HTML5 canvas is (a drawing
+  surface the browser paints on) so nothing in the prompt is magic to him.
+- STEP 3 — ASSEMBLE THE PROMPT WITH HIM, THEN HAND IT OVER. From what you two just described,
+  compose the actual prompt and give it in its OWN fenced code block (\`\`\`) so he gets the
+  one-tap copy button — never a blockquote or italics (see COPY-PASTE FORMATTING). Tell him
+  exactly what to do with it: paste it into Claude in the terminal, press Enter, and let it
+  work. A solid starter, tuned by your conversation: a single-file index.html, HTML5 canvas
+  mini-golf — a ball, a cup, walls to bounce off, slingshot drag-to-aim, a stroke counter,
+  and a win state.
+- STEP 4 — SEE IT RUN. The viewer loads his game AUTOMATICALLY the moment it's actually
+  serving — he doesn't press anything, it just appears. So don't tell him to hunt for a
+  reload button to make it show up, and don't claim it's already on screen until your live
+  state says the app is loaded. While it's still building, the viewer shows "watching for
+  your app…"; let that stand and keep him moving in the terminal. Read your LIVE STATE:
+  when the VIEWER line says the app is loaded, celebrate it with him. He NEVER types a URL
+  or file path — if Claude Code says "open /home/coder/index.html" or any path, tell him to
+  ignore it; it appears on its own. (The ↻ reload is only for later, after he's changed the
+  game and wants to see the new version.)
+- KEEP THE APP WHERE THE VIEWER CAN SEE IT (self-correct from the terminal). The viewer
+  serves exactly ONE file — \`index.html\` in his workshop folder — at its root. You can SEE
+  from the terminal where Claude actually put things. If it built the app somewhere the
+  viewer can't show it — a differently-named file (\`game.html\`, \`word-mashup.html\`), a
+  subfolder, or an external/published link (e.g. a \`claude.ai\` page) — it will NOT appear in
+  his viewer and it can't be shipped. Do NOT repoint him at a file path or an external URL,
+  and do NOT let it sit: say plainly what happened ("it built your game, but as a separate
+  file the viewer can't show — let's put it where you'll see it"), and hand him a fenced
+  one-liner to paste to Claude:
+  \`\`\`
+  Rebuild this as a single self-contained index.html in this folder (overwrite index.html) so it shows in my viewer.
+  \`\`\`
+  Then read the terminal to confirm \`index.html\` now exists and let the viewer load it. This
+  is a teachable beat, not a failure — where your app lives is part of how the web works.
+- STEP 5 — THE LOOP + UPGRADES. Now name the loop: describe → generate → play → tweak. When
+  the first hole works, offer an UPGRADE MENU he PICKS from — obstacles, a second hole,
+  scoring, "juice" (a win screen, sound, a title, a theme) — his choice, not a checklist.
+  Debug by describing the bug back to Claude in plain words (that IS the loop).
+- STEP 6 — SHIP IT (how today ends). Today's payoff is a REAL, delivered thing. Once his
+  game plays, tell him it's time to ship — that gives him a permanent public link he can
+  send a friend (no login, works on any phone). When objectives are done a "Ship it" card
+  appears; he ships, then confirms he's happy, and that's the finish. Do NOT wrap the day
+  or say goodbye before he's shipped — shipping IS the ending. Make it feel like the win it
+  is: he went from nothing to a thing other people can play, today.
+- FALLBACK: if the workshop terminal isn't available for any reason, don't let him stall —
+  have him run the same prompt in claude.ai instead and coach from there. Never stuck
+  waiting.
+
+HOW TO WORK WITH HIM (from his interview + Day 1):
+- Momentum over rigor today. Celebrate the moment the game first appears and the ball
+  first drops in the cup — those are the wins that matter.
+- Short answers are his register, not disengagement. Direct questions beat open ones.
+- This is a FUN day. If he wants to stop, let him stop — he should leave grinning, not
+  grinding. Never trap him on a gate (the Day-1 lesson). Keep the required bar low and
+  the delight high.
+- Encourage HIS creative choices — ask "what do you want it to do?", never "here's what
+  you should add." His game, his call.`.trim(),
+
+  objectivesMd: `
+## 1. The story
+- [ ] R discuss history.walk — He's walked the arc from the earliest mechanical machines to the democratization moment — where AI hands anyone the power that used to belong to a priesthood of engineers — and reacted to where HE sits in that story.
+- [ ] R discuss claude.why — He gets what vibe coding is (describe → generate → play → tweak → repeat) and what makes Claude Code different from a chatbot: an agent that works in his real files and terminal and does the work with him.
+
+## 2. The workshop
+- [ ] R discuss ide.intro — He's seen his workshop — chat (instructor, always on), terminal (his own machine), viewer (his creation, live) — and knows he can ask for help ANY time.
+
+## 3. Build (the fun)
+- [ ] R check build.first — Mini-golf is running in his workshop: a ball he can hit into the cup at least once.
+- [ ] R check build.mine — He's made at least one change that was HIS idea and seen it show up in the game.
+- [ ] B check build.juice — He's added juice — a win screen, a sound, a celebration, a title, or a theme — the stuff that makes it feel like a real game.
+- [ ] B check build.hole2 — There's more than one hole, or a real obstacle the ball must get around.
+
+## 4. Ship + reflect
+- [ ] R check ship.replayable — The game is replayable and he's had fun making it his own.
+- [ ] B discuss wrap.next — He's banked one thing he'd want to build or add next, and knows the build loop he just used is the one the whole course runs on.
+`.trim(),
+
+  canvasProgram: {
+    'video.history': {
+      type: 'video',
+      title: 'From punch cards to you',
+      payload: HISTORY_VIDEO_ID
+        ? { youtubeId: HISTORY_VIDEO_ID, label: 'A short history of computing', caption: 'The whole sweep — then we walk it beat by beat.' }
+        : { label: 'A short history of computing' },
+    },
+    'deck.history': {
+      type: 'deck',
+      title: 'The Keys to the Kingdom',
+      payload: {
+        frames: [
+          { kind: 'statement', kicker: 'Day 2', text: 'For 80 years, making software was a priesthood.', sub: 'You had to learn arcane languages to speak to machines. Today, that barrier falls — for you.' },
+          {
+            kind: 'figure', figureKind: 'iconrow',
+            spec: {
+              title: 'How we got here',
+              items: [
+                { id: 'mech', glyph: 'grid', label: 'Punch cards', sub: 'Binary before electricity — a program was physical holes.' },
+                { id: 'tubes', glyph: 'spark', label: 'Vacuum tubes', sub: 'ENIAC — room-sized. The first programmers patched cables by hand.' },
+                { id: 'chip', glyph: 'clock', label: 'The transistor', sub: 'Moore’s Law: compute doubles, and doubles, and doubles.' },
+                { id: 'pc', glyph: 'phone', label: 'The PC', sub: 'The computer comes home — but using one ≠ creating with one.' },
+                { id: 'eng', glyph: 'people', label: 'The engineer', sub: 'Arcane languages built a priesthood. Speak to machines, gain power.' },
+                { id: 'ai', glyph: 'spark', label: 'AI', sub: 'The machine writes the arcane languages for you.' },
+              ],
+            },
+          },
+          { kind: 'stat', value: '80 years', label: 'from the first mechanical machine to a barrier anyone can cross', note: 'Machine code → the internet → the cloud → infinite compute → and now, AI that writes the code.' },
+          { kind: 'statement', kicker: 'The moment', text: 'That’s you, Zachary. Today.', sub: 'A 17-year-old with an idea can build what used to take a team and a computer-science degree.' },
+          { kind: 'statement', kicker: 'From here', text: 'Robots. Quantum. Agents that build for you.', sub: 'The frontier is wide open exactly as you walk in. First, let’s learn to build.' },
+        ],
+      },
+    },
+    'deck.why': {
+      type: 'deck',
+      title: 'Why this, why now',
+      payload: {
+        frames: [
+          { kind: 'statement', kicker: 'Why now', text: 'You describe. The machine builds.', sub: 'The hard part used to be writing the code — years of it. Now the AI does that part. Your job is knowing what to ask for.' },
+          {
+            kind: 'figure', figureKind: 'iconrow',
+            spec: {
+              title: 'Vibe coding — the loop the whole course runs on',
+              items: [
+                { id: 'd', glyph: 'chart', label: 'Describe', sub: 'Say what you want, in plain words.' },
+                { id: 'g', glyph: 'spark', label: 'Generate', sub: 'The machine writes the code.' },
+                { id: 'p', glyph: 'ball', label: 'Play', sub: 'Run it. See what it does.' },
+                { id: 't', glyph: 'wrench', label: 'Tweak', sub: 'Change it. Repeat until it’s yours.' },
+              ],
+            },
+          },
+          { kind: 'statement', kicker: 'What makes Claude Code different', text: 'Not a chatbot that hands you snippets.', sub: 'An agent that works in your real files and your real terminal — reads, edits, runs, debugs across a whole project. It doesn’t just tell you. It does it, with you.' },
+          { kind: 'statement', kicker: 'In 20 minutes', text: 'You’ll have built a real, playable game.', sub: 'Not a tutorial toy — your own thing, running in your own browser, that you can keep changing forever.' },
+        ],
+      },
+    },
+    'workshop.build': {
+      type: 'workshop',
+      title: 'Your workshop',
+      // wsUrl / token / viewerUrl are injected server-side from env at emit time.
+      payload: { mode: 'live', label: 'coursework-vm — your machine' },
+    },
+  },
+
+  canvasDefaults: {
+    'history.walk': 'deck.history',
+    'claude.why': 'deck.why',
+    'ide.intro': 'workshop.build',
+    'build.first': 'workshop.build',
+    'build.mine': 'workshop.build',
+    'build.juice': 'workshop.build',
+    'build.hole2': 'workshop.build',
+    'ship.replayable': 'workshop.build',
+    'wrap.next': 'deck.history',
+  },
+
+  // No authored artifacts — Day 2's "artifact" is his running game, gated by a light
+  // check (build.first), never the ownership verifier (the Day-1 trap).
+  artifacts: {},
+
+  entry: {
+    canvas: 'video.history',
+    context:
+      "Greet Zachary by name. Remind him that yesterday he made a real decision — his AI investing translator. Tell him today is a different, FUN muscle: before he builds his real venture, he learns the one skill the whole course runs on — the build loop — on something pure play, a mini-golf game he'll ship today. But first, show him where he's standing in a much bigger story. Open on the history video, then walk it with him.",
+  },
+  // exit: engine DEFAULT_REPORT_SCHEMA — no per-day override needed.
+}
+
 // Registry: courseSlug → ordered array of day packs. getSessionPack resolves a
 // (courseSlug, dayId) pair. The `_showcase` course exists only to exercise the
 // grammar.
 const SESSION_PACKS = {
   _showcase: [SHOWCASE_DAY],
-  'noob-to-ai-entrepreneur': [ZACHARY_DAY_1],
+  'noob-to-ai-entrepreneur': [ZACHARY_DAY_1, ZACHARY_DAY_2],
 }
 
 const OBJECTIVE_TYPES = new Set(['discuss', 'check', 'artifact'])
@@ -1281,6 +1541,7 @@ export function getSessionPack(courseSlug, dayId) {
       oneLine: day.oneLine,
       pronouns: day.pronouns,
       budget: day.budget,
+      requiresShip: day.requiresShip || false,
       masterPrompt: day.masterPrompt,
       canvasProgram: day.canvasProgram,
       canvasDefaults: day.canvasDefaults,
@@ -1611,7 +1872,7 @@ export function renderObjectiveBoard(pack, state, focusId) {
 // --- pack validation (author-time guardrail; run in tests + engine boot) ---
 
 // Canvas types the client actually renders (src/components/session/canvas/*).
-const CANVAS_TYPES = new Set(['reading', 'deck', 'video', 'image', 'browser', 'terminal', 'artifact', 'figure'])
+const CANVAS_TYPES = new Set(['reading', 'deck', 'video', 'image', 'browser', 'terminal', 'workshop', 'artifact', 'figure'])
 // Figure kinds FigureCanvas routes (grows with renderers). Exported: the
 // Stagehand (Phase T.4f Tier 3) validates a runtime-generated spec against the
 // SAME set + rules as authored packs.

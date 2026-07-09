@@ -1,5 +1,94 @@
 # Status (rolling)
 
+## 🚀 Automated onboarding + admin console + user settings (2026-07-08) — IN PROGRESS
+Full plan: `~/.claude/plans/plan-id-like-elegant-whistle.md`. Goal: invite a learner → auto-create
+registry entry (replicate an existing course) → auto-provision the VM user → invite link, with NO
+terminal + NO redeploy. Builds on the per-user VM isolation shipped this session (`workshop/`).
+Decisions: signed rotating tokens · pull provisioning (R2 queue + droplet root daemon) · shared
+platform API key default (BYOK-ready). Capacity: cap = 3 concurrent active sessions on current box.
+
+**Phase I — Rotating (signed) workshop tokens** (code complete 2026-07-08; deploy/verify pending):
+- [x] `functions/_workshopToken.js` — `signWorkshopToken` (Web Crypto HMAC); interop with Node verifier PROVEN (6/6 tests)
+- [x] `functions/_session.js` `injectLiveSurfaces` — drops per-user `TERMINAL_TOKEN_<USER>`; shared `TERMINAL_TOKEN` fallback only
+- [x] `functions/[studentSlug]/api/session/workshop-token.js` — new endpoint mints a fresh signed token per request
+- [x] `workshop/bridge/server.mjs` — accepts signed (HMAC + `WORKSHOP_USER` claim + expiry) OR legacy static token (zero-downtime cutover)
+- [x] `workshop/provision-user.sh` — writes `WORKSHOP_USER`; no per-user token; shared secret at `/etc/coursework/signing.env`; `coursework-bridge@.service` loads it
+- [x] client — `LiveTerminal` fetches a fresh token per (re)connect via `WorkshopCanvas.getWorkshopToken`
+- [x] `wrangler.toml` — documents `WORKSHOP_SIGNING_SECRET` (retires `TERMINAL_TOKEN_<USER>`)
+- [ ] DEPLOY (Jonathan, root+CF): signing.env on droplet + `WORKSHOP_USER` on existing envs + copy server.mjs/service + restart bridges + set `WORKSHOP_SIGNING_SECRET` app secret + deploy app
+- [ ] verify live WS through tunnel — valid→whoami, cross-user→4001, expired→4001, rotate→old dead
+
+**Phase II** — session continuity + admin console + automated onboarding (registry, pull-provisioning daemon, authz layer, concurrency lease, admin features incl. per-learner progress/transcripts + "ask AI about learner"). **Phase III** — user settings (Director persona, BYOK key, profile, workspace reset, **theme choices**, a11y). Detail in the plan file.
+
+---
+
+## 🎯 Genuinely open, larger (current top of mind — 2026-07-08)
+The big remaining workstreams. Detail lives in the sections below; this is the trustworthy at-a-glance list.
+- [ ] **#6 — Paste/attach images & files in chat** (multimodal to the model). Not started. Detail: "Multimodal input" section below.
+- [ ] **/admin console + default-deny authorization layer.** Marked IN PROGRESS but all sub-items still unchecked (`_access.js`, middleware, me/admin APIs, `AdminView`, 403 UX). CF Access on the whole domain is now LIVE (done 2026-07-08, see decisions.md), so this is the **app-side per-course grant** layer, not the front door. Detail: "/admin console" section below.
+- [ ] **#3 — Live annotation overlays / Guide v2** over the scrolling terminal. Explicitly deferred (hard: needs xterm content anchoring). Detail: "Deferred" + "Guide overlay v2" sections below.
+- [ ] **Director persona / custom instructions as a per-user/per-course SETTING + admin tools** (2026-07-08). Users (or the admin) set persona/behavior instructions that fold into the Director's system prompt. Belongs on the settings surface of the `/admin` console workstream — build alongside the authz layer.
+
+---
+
+## 🎨 UI polish / attention cues (2026-07-08)
+- [x] **Pulsing "Continue to…" chip regression (items 1 & 4).** DONE — added `continue-pulse` to the canvas-side overlay pill (`SessionView.jsx`); the inline chat version already pulsed.
+- [x] **Guide overlay chips need contrast (item 3).** DONE — `GuideTip` chips now bright amber (`#febc2e`) + dark border + white outer ring (reads on dark terminal AND light viewer) + `continue-pulse`.
+
+---
+
+## 📝 Day-2 run feedback batch (Zachary, 2026-07-08) — from a full end-to-end test (reached "end")
+Triaged by theme; impact-ordered. Fix top-down.
+
+**Quick wins (high-frequency, well-specified):**
+- [x] **#1 Chat streaming scroll** — grow-up-then-freeze-at-top: when a reply starts, pin its bubble TOP to the frame top and freeze; text streams downward off the fold; down-arrow reveals below-fold + follows bottom. (`ChatMessages.jsx`) ✅ reinstated.
+- [x] **#7/#8 Terminal copy/paste** — ⌘C/Ctrl+Shift+C + right-click copy the selection; ⌘V/Ctrl+Shift+V + right-click (no selection) paste; bare Ctrl-C still SIGINTs when nothing is selected. (`LiveTerminal.jsx`) ✅
+
+**Director-as-live-tutor loop (core pedagogy — PROACTIVE Director turns that react to the terminal stream without a user message):**
+- [x] **PROACTIVE TURNS machinery (Phase 1)** — SHIPPED. Client Sentinel (`src/session/terminalEvents.js`, closed event taxonomy + hash-dedupe for TUI repaints) → LiveTerminal `onEvent` (output signal + `onData` learner-line buffer) → ContentCanvas/WorkshopCanvas pass-through → SessionView firing policy → `driver.sendProactive` → `message.js` `kind:'proactive'` lean branch (`handleProactiveTurn`): budget-exempt (proactiveTurns not totalUserTurns), tick-inert, completion-inert, `[PASS]` escape, buffered (no [PASS] flash), synthetic-turn history, server-authoritative `explainedAffordances`. Model = Sonnet 5, max_tokens 700, session cap 20. Engine PROACTIVE-TURNS prompt block (workshop days) + envelope proactive block + affordance ledger in `_session.js`; Day-2 pack NARRATE beat rewritten.
+- [x] **#2 (first-time affordances) + #5 (permission prompts) — Phase 1 slice** — permission/trust prompts fire a proactive explanation the moment they appear; affordances explained once (ledger).
+- [x] **#4 Watch & critique the learner's own prompting** — SHIPPED (Phase 1 flagship): learner-typed prompts (≥15 chars, not a shell command) fire a real-time critique turn.
+- [ ] **#5 rest + #2 rest (Phase 2)** — menu (↑/↓) / error / step-done / wait-narration events; proactive suggestion chips; client-side repeat-decay throttle using the mirrored ledger.
+- [ ] **Phase 3 hardening** — Haiku salience prefilter fallback if TUI-regex proves brittle; per-pack affordance extensions.
+
+**Multimodal input:**
+- [ ] **#6 Paste/attach images + files in chat** — like Claude/ChatGPT. Upload + attach to the coached-session message; multimodal to the model.
+
+**Ship & clean completion (TOP-PRIORITY per Jonathan — the course payoff):**
+- [x] **#9 Ship the game + sign-off gate** — BUILT (pending 1 infra step). Decision: snapshot the self-contained index.html to R2, serve publicly at `play.kitbord.com/<student>/<course>/day-<id>` (outside CF Access → share links work). MANDATORY on this step only (`requiresShip: true` on the Day-2 pack; other days unaffected) — no skip. Backend: `ship.js` (snapshot→R2, sets session.shipped/shippedUrl), `signoff.js` (sets signedOff+completes), `_middleware.js` (serves play.* from R2), gate in `message.js` (`done = baseDone && (!requiresShip || signedOff)`) + `awaitingShip` signal, session fields + start.js resume signal. UI: `ShipCard.jsx` overlay (Ship→link+copy+preview→"I'm happy, finish"), dismissable-to-workshop with a persistent 🚀 banner (anti-trap), wired in `SessionView.jsx`. Director pack STEP 6 drives to ship.
+  - **⚠️ INFRA (Jonathan, ~2 min, gates the live link):** add `play.kitbord.com` as a custom domain on the `coursework` Pages project (Pages → Custom domains); confirm the CF Access app is scoped to `coursework.kitbord.com` (NOT `*.kitbord.com`) so `play.*` stays public. Until then ship writes to R2 but the link 404s.
+
+**Deferred (Jonathan said "later"):**
+- [ ] **#3 Live annotation overlays** — Director highlights/points to elements in the terminal (or viewer) with clickable, expandable annotations. (Guide v2 over live terminal text.)
+
+---
+
+## 🔑 /admin console + default-deny authorization layer (2026-07-09) — IN PROGRESS
+Builds the authz layer we designed (CF Access = identity, app = authorization) + the admin surface.
+
+**Model:** CF Access injects verified `Cf-Access-Authenticated-User-Email`. App holds a grants store (email → course slugs; admins → all). Default-deny, enforced in Functions (the token/data layer). **"Course" (v1) = an existing student slug** (`zachary`, `zachary-test`, `contentcreator`, `jordan`). **Invite = grant an email to a slug**; on first visit CF Access makes them Google-login and the grant matches. Real invite *emails* = phase 2.
+
+**CREATE:** `functions/_access.js` (grants store in R2 INTERVIEW `admin/access.json` + `BOOTSTRAP_ADMINS=['jonathan.rosenbaum@gmail.com']` so we can't lock out + `getEmail`/`getIdentity`/`canAccess`); `functions/api/me.js` (`{email,isAdmin,courses}`); `functions/api/admin/{access,grant,revoke}.js` (admin-only); `src/components/AdminView.jsx`.
+**MODIFY:** `functions/_middleware.js` (enforce: `/api/admin/*`→admin, `/<slug>/api/*`→canAccess or admin, else 403; HTML+assets+`/api/me` pass; fail closed if no email header); `src/App.jsx` (`/admin` route); `SessionView.jsx`+tracker (render a friendly "no access to this course" state on API 403).
+
+**/admin UI (v1):** courses table (student+title+open+`/‹slug›/dad` link); access/invites (email→courses list, grant form email+course dropdown, revoke, pending-invite hint + copy-link); legacy admin links to `/‹slug›/dad`; roadmap section.
+
+**Deploy coordination (no open window):** (1) deploy default-deny middleware+APIs+/admin (fails closed → nothing opens); (2) THEN Jonathan widens CF Access policy from the 2-email allowlist to **Allow → Everyone**; until then the allowlist still protects everything.
+
+**Roadmap — other admin features (not v1):** manage admins from /admin; provision a new course/tenant (new slug+config+R2, removes students.js hand-edit); per-student progress/activity view; real invite emails (Resend/MailChannels); per-student workspace isolation (agreed, keys off this login); revoke/reset a student's day.
+
+**Progress:** [ ] _access.js  [ ] middleware  [ ] me+admin APIs  [ ] AdminView+route  [ ] 403 UX  [ ] deploy → widen CF (Jonathan)
+
+---
+
+## Session UX / workshop roadmap (2026-07-09)
+- [ ] **Proactive / auto-advance Director (event-driven terminal turns).** Today the Director only acts on the learner's messages, though it already SEES the terminal output each turn. Make terminal *milestones* trigger a Director turn without the learner typing: detect `claude` launched → hand the prompt; `index.html` written → "hit reload"; an error → jump in. Musts: milestone detection (not every byte), debounce + "only speak if it moves things forward," cost guard (each trigger is a model call). Bigger engine feature — plan properly. (Interim easy-win DONE: pack rules "READ THE TERMINAL, DON'T INTERROGATE" + STEP-1 "watch the terminal yourself" so it stops asking the learner to confirm what it can see.)
+- [ ] **Guide overlay v2** — outline elements INSIDE the live terminal text (e.g. "this line is Claude writing your file"). Harder than v1 (fixed-pane outlines) because terminal text scrolls/changes; needs xterm content anchoring.
+- [x] **Guide overlay v1** — "❔ Guide" toggle in the workshop → glowing outlines + click-to-expand captions on the fixed panes (terminal, viewer). (WorkshopCanvas.)
+- [x] **Continue affordance under the chat + pulse** — wide VP now shows the pulsing Continue bar under the response (distinct from answer chips), not only the canvas overlay.
+
+---
+
 ## Dev batch — Jonathan's 6 open comments (2026-07-07, dev only, HOLD release)
 Working on dev; do NOT deploy until this batch is reviewed. Production is already
 live at coursework.kitbord.com with the canvas-resolver deploy.

@@ -73,6 +73,70 @@ export {
 
 export { getSessionPack, progressInfo, isComplete, isArtifactSatisfied, resolveShowTarget, DEFAULT_REPORT_SCHEMA }
 
+// Live-surface injection: the `workshop` (and live `terminal`) directives carry no
+// URLs in the pack — the droplet's PTY wss endpoint, its token, and the app-viewer URL
+// come from env at emit time (they're deployment config, not authored content). Applied
+// at every endpoint that sends a directive to the client. Empty env → empty fields, and
+// the client shows the "not running yet" placeholder + the Director uses the claude.ai
+// fallback (per the Day-2 masterPrompt) — so a missing tunnel never strands the learner.
+// The VM's public origin, hardcoded as a default so a failed Pages [vars] binding can
+// never again silently emit '' and strand the viewer + Director (the original Day-2
+// blocker). It's not a secret (see wrangler.toml). The default must ALWAYS be a URL
+// that actually resolves — so it tracks the current working origin.
+// INTERIM: the live cloudflared quick tunnel. FINAL STEP of the named-tunnel setup
+// (Part B) is to flip this one constant + the wrangler [vars] to
+// 'https://workshop.kitbord.com' once that DNS/tunnel resolves. The TOKEN is never
+// defaulted — it gates real shell access and stays env-only.
+export const DEFAULT_VM_URL = 'https://eye-recruiting-views-kingston.trycloudflare.com'
+
+// Shipped games are served publicly here (a distinct host OUTSIDE Cloudflare Access, so
+// share links work for anyone). One definition, used by the ship endpoint (writes R2)
+// and _middleware.js (serves R2). shipKey maps student/course/day → the R2 object key;
+// the public path play.kitbord.com/<student>/<course>/day-<id> mirrors it (minus .html).
+export const PLAY_HOST = 'play.kitbord.com'
+export const shipKey = (studentSlug, courseSlug, dayId) =>
+  `ships/${studentSlug}/${courseSlug}/day-${dayId}.html`
+
+// The droplet serves the app dir with `python -m http.server`, which returns a 200
+// DIRECTORY LISTING (not a 404) when there's no index.html — an empty workspace. That
+// listing must NOT read as "app is ready" (viewer auto-load) nor be shippable (it isn't
+// the learner's game). One detector, used by the readiness probe and the ship endpoint.
+export const isDirListing = (html) => /<title>\s*Directory listing for/i.test(html || '')
+
+// Append the per-student workshop route (/u/<user>) to a base tunnel origin so the
+// droplet's identity-aware proxy can route this student's traffic to their OWN
+// isolated backend (bridge + viewer, running as their own unix user). No workshop
+// user configured → the bare base (legacy single-tenant behavior, unchanged).
+function withUserRoute(base, user, trailingSlash) {
+  if (!base) return base
+  const clean = base.replace(/\/+$/, '')
+  if (!user) return trailingSlash ? `${clean}/` : clean
+  return `${clean}/u/${user}${trailingSlash ? '/' : ''}`
+}
+
+export function injectLiveSurfaces(directive, env, student) {
+  if (!directive) return directive
+  const isLive = directive.type === 'workshop' || (directive.type === 'terminal' && directive.payload?.mode === 'live')
+  if (!isLive) return directive
+  const user = student?.workshop?.user || null
+  const wsBase = env?.TERMINAL_WS_URL || directive.payload?.wsUrl || DEFAULT_VM_URL
+  const viewerBase = env?.APP_VIEWER_URL || directive.payload?.viewerUrl || DEFAULT_VM_URL
+  // The workshop token is now minted per-connect by the client (GET .../session/workshop-token,
+  // HMAC-signed + short-lived, see functions/_workshopToken.js). We only inject the shared
+  // TERMINAL_TOKEN here as a FALLBACK — for students not on a per-user bridge (legacy `default`
+  // route) or if signing isn't configured yet.
+  const token = env?.TERMINAL_TOKEN || directive.payload?.token || ''
+  return {
+    ...directive,
+    payload: {
+      ...directive.payload,
+      wsUrl: withUserRoute(wsBase, user, false),
+      token,
+      viewerUrl: withUserRoute(viewerBase, user, true),
+    },
+  }
+}
+
 // Same model rationale as the interview: the per-turn reasoning pass is what
 // works the board + canvas + evidence rules. Haiku proved it won't emit tags.
 export const SESSION_MODEL = 'claude-sonnet-5'
@@ -82,6 +146,29 @@ export const SUMMARY_MODEL = 'claude-haiku-4-5'
 export const MAX_NEW_TICKS_PER_TURN = 3
 export const DEFAULT_MAX_TURNS = 80 // engine fallback when a pack declares no budget
 export const MIN_TURNS_BEFORE_COMPLETE = 8 // low sanity floor — objectives are the real gate
+
+// Proactive (terminal-triggered) Director turns: a hard per-session cap (backstop to
+// the client-side rate policy) and a smaller token ceiling — these turns are short,
+// budget-exempt, tick-inert glances over the learner's shoulder, not full teaching turns.
+export const PROACTIVE_MAX_PER_SESSION = 20
+export const PROACTIVE_MAX_TOKENS = 700
+
+// A live-workshop day (Day 2) is the only place proactive terminal turns fire — gate the
+// proactive prompt/affordance machinery on the pack actually having a workshop surface.
+export function hasLiveWorkshop(pack) {
+  return Object.values(pack?.canvasProgram || {}).some((e) => e?.type === 'workshop')
+}
+
+// The terminal affordances the Director explains the FIRST time each appears (#2). Only
+// event types the Sentinel actually emits belong here — the ledger must not promise moments
+// that never fire. ("activity" — a chunk of work landing — is not a name-once affordance, so
+// it's deliberately absent; it's handled by the WORK LANDED rule every time it fires.)
+export const AFFORDANCE_LABELS = {
+  'permission-prompt': 'a permission prompt (Claude asking before it acts)',
+  'learner-prompt': 'the learner writing his own prompt to Claude Code',
+  'trust-prompt': 'the folder-trust prompt',
+  error: 'an error in the terminal',
+}
 
 // Window memory bounds (Fable arch review #4): last WINDOW_KEEP turns verbatim;
 // when history exceeds FOLD_AT, the oldest (len - WINDOW_KEEP) fold into
@@ -95,6 +182,24 @@ export function lessonKey(studentSlug, courseSlug, dayId) {
 }
 export function reportKey(studentSlug, courseSlug, dayId) {
   return `lessons/${studentSlug}/${courseSlug}/day-${dayId}-report.md`
+}
+
+// The Observer's rolling terminal situation lives in its OWN small R2 object — NOT on the
+// session — so a glance write (which can land at any moment while the learner works) can
+// never clobber a concurrent Director turn's read-modify-write of the session (ticks,
+// history, canvas state). The turn handlers read it and fold it into the envelope; the
+// glance endpoint is the only writer. Loss of a glance is harmless (best-effort awareness).
+export function glanceKey(studentSlug, courseSlug, dayId) {
+  return `glances/${studentSlug}/${courseSlug}/day-${dayId}.json`
+}
+export async function loadGlance(env, studentSlug, courseSlug, dayId) {
+  return readJSON(env.INTERVIEW, glanceKey(studentSlug, courseSlug, dayId))
+}
+export async function saveGlance(env, studentSlug, courseSlug, dayId, situation) {
+  await writeJSON(env.INTERVIEW, glanceKey(studentSlug, courseSlug, dayId), {
+    situation,
+    updatedAt: new Date().toISOString(),
+  })
 }
 
 export async function loadLesson(env, studentSlug, courseSlug, dayId) {
@@ -139,7 +244,19 @@ export function newLesson(student, course, studentSlug, pack) {
     summary: '', // running fold of turns aged out of the window
     transcriptLog: [], // full audit log — never folded, never sent to the model
     totalUserTurns: 0,
+    // Proactive terminal turns (#2/#4/#5): count is a budget-exempt tally (separate from
+    // totalUserTurns so it can't burn the day). explainedAffordances[type] = the proactive
+    // turn number an affordance was first explained on — drives "name it once" (#2) and the
+    // client's repeat-decay throttle. Additive v2 fields; old sessions default via ||= at read.
+    proactiveTurns: 0,
+    explainedAffordances: {},
     completed: false,
+    // Ship gate (packs with requiresShip, e.g. Day 2): the session can't complete until
+    // the learner ships the built artifact and signs off. `shipped` set by /ship (with
+    // the public URL), `signedOff` by /signoff — both required to finalize a ship day.
+    shipped: false,
+    shippedUrl: null,
+    signedOff: false,
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }
@@ -686,6 +803,22 @@ export function buildSessionSystemPrompt(pack, studentName) {
     ? `Today is budgeted at ~${pack.budget.targetMinutes ?? '—'} minutes / max ${maxTurnsFor(pack)} turns. Pace to finish inside it.`
     : `Pace the session naturally; the server caps it at ${DEFAULT_MAX_TURNS} turns.`
 
+  // Proactive terminal turns only exist on live-workshop days — include the method block
+  // for them there, and nowhere else (keeps other days' prompts unchanged).
+  const proactiveBlock = hasLiveWorkshop(pack)
+    ? `
+PROACTIVE TURNS (live-workshop days only). Some turns are triggered by ${p.possessive} TERMINAL, not by a message from ${p.object} — the envelope will say "PROACTIVE TURN" and name the event. ${p.subject.charAt(0).toUpperCase() + p.subject.slice(1)} has NOT sent you anything; you are glancing over ${p.possessive} shoulder at the right moment. Act like it:
+- SHORT. Two to four sentences, unless it's the FIRST time an affordance appears. ${p.subject.charAt(0).toUpperCase() + p.subject.slice(1)} is mid-task — you're a voice at ${p.possessive} shoulder, not a lecture. Never narrate what ${p.subject} can obviously see and already gets.
+- If the moment genuinely needs no words — ${p.subject} clearly has it, or you'd only repeat yourself — reply with exactly [PASS] and nothing else. Silence at the right moment is coaching too. But NEVER [PASS] a first-time permission prompt or a first-time affordance.
+- PERMISSION PROMPT (before ${p.subject} approves): translate what Claude is asking into OUTCOME language — not "it wants to run npm install" but "it's asking permission to download the building blocks your game needs — that's normal and safe here." Name the mechanic once (↑/↓ move the highlight, Enter picks), say what approving does. The choice is ${p.possessive.toUpperCase()} — never reflexively say "just hit yes"; say why THIS one is fine to approve. This checkpoint is the safety model of the whole tool: Claude proposes, ${p.subject} disposes. Teach that, once, plainly.
+- FIRST-TIME AFFORDANCE: name the element on screen in plain terms ("that ❯ arrow is a cursor in a menu — ↑/↓ move it, Enter chooses"), say what it's for in one line, then get out of the way. The envelope lists which affordances you've already explained — for those, one clause at most, usually nothing.
+- ${p.possessive.toUpperCase()} OWN PROMPT (the event carries the EXACT words ${p.subject} typed to Claude Code): this is the core skill of the whole course surfacing live — treat it as the most valuable moment of the day. Work from ${p.possessive} EXACT words. First, quote the strongest specific thing in it and say what that specificity buys ${p.object} in the result. Then name what's vague and the ONE missing detail that would most change the outcome — "'make it better' leaves Claude guessing; better how? pick the thing: the ball's speed, the bounce, the win screen." Offer sharper phrasing as something ${p.subject} can STEAL, never a replacement — it's ${p.possessive} prompt, it should still sound like ${p.object}. If it's already sharp, say precisely WHAT makes it sharp and let it run. VOICE rules apply doubly: no "great prompt!" — show ${p.object} it's good by showing what it will produce.
+- WORK LANDED (event "activity" — Claude Code just finished a chunk of work and the terminal went quiet): glance at what the excerpt shows it produced. Speak ONLY if there's a genuine teachable beat — it built or changed something worth naming, made a choice ${p.subject} should notice, or ${p.subject} is now at a natural fork ("it's got the ball moving — the next lever is the cup"). One or two sentences, in plain outcome language, then let ${p.object} keep going. If it's routine and ${p.subject} is clearly following, reply [PASS] — do NOT narrate every step; a shoulder-voice that comments on everything becomes noise.
+- ERROR (event "error" — something appears to have failed): FIRST confirm the excerpt is a real failure, not the word "error" in ordinary output — if it isn't, [PASS]. If it is, don't let ${p.object} stare at a red wall: in one or two plain sentences say what the error actually means and the single most likely next step or fix, then hand it back for ${p.object} to try. Calm and concrete — no jargon dump, no pasting the stack trace back at ${p.object}.
+- The inside of ${p.possessive} terminal is COURSE MATERIAL — name its elements freely (❯, ↑/↓, Enter, the permission list). The NO UI COACHING rule is about the app AROUND the terminal, not the terminal's own contents.
+`
+    : ''
+
   return `You are the live instructor running ${studentName}'s course session — Day ${pack.day}: "${pack.title}". This is a working session inside the course app: a chat pane (you) and a content canvas (you control it). Refer to the learner as ${p.subject}/${p.object}/${p.possessive}.
 
 ${pack.masterPrompt}
@@ -735,6 +868,10 @@ PACING. ${budgetLine} Move briskly through discuss boxes; spend the real time wh
 
 EMPHASIS. When the working subject changes — a new arc, tool, or concept becomes the focal point — BOLD its name (**like this**) at the moment of the shift, and keep bolding key established numbers. Typographic reinforcement of "this is what we're working on now." Bold the pivots, not everything.
 
+VOICE. Talk like a sharp mentor who respects ${p.object} — not a chatbot performing warmth. Do NOT validate with empty affirmations: no "that's real", "that's honest", "great point", "love that", "so true", "I hear you", "totally valid". They read as fake and cheapen everything else you say. When ${p.subject} says something good, show it by BUILDING on it — ask the sharper next question, push it further, put it to work — never by labeling it. Praise only when it is specific and earned, and then name the exact thing. Default to substance over reassurance; your warmth comes through attention, directness, and taking ${p.object} seriously, not through compliments.
+
+COPY-PASTE FORMATTING. Anything ${p.subject} is meant to paste or type verbatim into the terminal — a shell command, or a build/starter prompt for Claude Code — MUST be wrapped in a fenced code block (a line of \`\`\` above and below it), never a blockquote, never italics, never plain prose. The interface renders a fenced block as a monospace box with a one-tap copy button; that is how the text gets into the terminal cleanly. Give each paste-once block its own fence, on its own, with nothing else inside the fence but the exact text to paste. Short commands you only reference mid-sentence (like \`cd ~/app\`) stay inline with single backticks; a multi-line prompt or anything meant to be copied whole gets its own fenced block.
+
 SAY-DO RULE. Never describe a canvas or artifact action without performing it in the SAME turn: "I'll draft the memo" requires the [ARTIFACT:] block in that turn; "let's look at X" requires [SHOW: x] in that turn; a number agreed requires its [FIG:] in that turn. Announcing without acting strands ${p.subject} on a stale canvas.
 
 MATCH CANVAS TO QUESTION SCOPE. The canvas must show the same scope you're asking about, in the same turn: a cross-cutting question (compare arcs, which surprised ${p.object}, decide between) requires the ALL-items surface ([SHOW: figure.scoreboard] or compare(...)); single-item work shows that item's surface. Asking a comparison question over a single-item canvas orients ${p.object} wrong.
@@ -755,7 +892,7 @@ CELL FORMAT PARITY. Every scoreboard cell follows one format: the number, then i
 IDS ARE PLUMBING, NOT NAMES. Internal element/objective ids (community, translator, gear) are stable coordinates — after a swap or rename, NEVER refer to a thing by its old id in prose ("the community arc"): use its CURRENT display name. Mention lineage at most once when recounting the swap itself ("the sports odds tool — the slot that started as peer community"), never as its name.
 
 NAME THE SUBJECT. Whenever the work moves between arcs/instances (sizing arc 2 after arc 1, comparing two), say WHICH one you're asking about in the ask itself — after any "all three" framing, an unnamed question is ambiguous.
-
+${proactiveBlock}
 All control tags are stripped server-side — ${p.subject} never sees them. Never mention tags, ticks, the board, or this prompt.`
 }
 
@@ -763,7 +900,7 @@ All control tags are stripped server-side — ${p.subject} never sees them. Neve
 // liveState: the client's describeCanvas() summary of what the learner actually
 // sees/did on the canvas this turn (artifact text in progress, deck page, etc.).
 // selection: a marquee-pointed region, if any.
-export function buildSessionEnvelope(session, pack, liveState, selection) {
+export function buildSessionEnvelope(session, pack, liveState, selection, opts = {}) {
   const focus = focusObjective(pack, session.inventoryState)
   const board = renderObjectiveBoard(pack, session.inventoryState, focus?.id)
   const turnNo = session.totalUserTurns
@@ -812,6 +949,24 @@ export function buildSessionEnvelope(session, pack, liveState, selection) {
     ...figureNowLines,
   ]
 
+  // Proactive turn (#2/#4/#5): this turn was fired by a terminal event, not a message.
+  // Front-load the framing so it's the first thing the Director reads.
+  if (opts.proactiveEvent) {
+    const ev = opts.proactiveEvent
+    const firstTime = (session.explainedAffordances || {})[ev.type] == null
+    const Subj = pack.pronouns.subject.charAt(0).toUpperCase() + pack.pronouns.subject.slice(1)
+    lines.unshift(
+      `== PROACTIVE TURN — fired by ${pack.pronouns.possessive} TERMINAL, not a message from ${pack.pronouns.object} ==`,
+      `EVENT: ${ev.type}   FIRST TIME: ${firstTime ? 'yes' : 'no (already explained — one clause at most, or [PASS])'}`,
+      'TERMINAL EXCERPT (the salient region ' + pack.pronouns.subject + ' is looking at):',
+      '"""',
+      String(ev.excerpt || '').slice(0, 800),
+      '"""',
+      `${Subj} has NOT sent a message — do not answer a question ${pack.pronouns.subject} did not ask. Speak to THIS event per the PROACTIVE TURNS rules, or reply with exactly [PASS].`,
+      '',
+    )
+  }
+
   if (session.dynamicProgram && Object.keys(session.dynamicProgram).length) {
     lines.push(
       '',
@@ -826,8 +981,34 @@ export function buildSessionEnvelope(session, pack, liveState, selection) {
   }
 
   if (liveState) lines.push('', 'LEARNER LIVE STATE (what the canvas shows right now):', String(liveState).slice(0, 3000))
+  // The Observer's rolling read of the terminal — present on workshop days so the Director
+  // stays oriented to the build even between the learner's chat messages (fixes the "only
+  // sees the terminal when he types in chat" gap). Plain-English, already summarized.
+  if (opts.terminalSituation) {
+    lines.push(
+      '',
+      `TERMINAL SITUATION (live read from the Observer watching ${pack.pronouns.possessive} terminal — stay oriented to it even between ${pack.pronouns.possessive} messages; do NOT re-narrate it unprompted):`,
+      String(opts.terminalSituation).slice(0, 900)
+    )
+  }
   if (selection && (selection.text || selection.note)) {
     lines.push('', `LEARNER IS POINTING AT (marquee selection): ${String(selection.text || selection.note).slice(0, 1000)}`)
+  }
+
+  // Terminal-affordance ledger (#2) — present on every workshop-day turn (a learner
+  // "what is that?" benefits too, not just proactive turns). Server-authoritative:
+  // explainedAffordances is written when a proactive turn actually explains one.
+  if (hasLiveWorkshop(pack)) {
+    const explained = session.explainedAffordances || {}
+    const known = Object.keys(AFFORDANCE_LABELS)
+    const done = known.filter((k) => explained[k] != null)
+    const todo = known.filter((k) => explained[k] == null)
+    lines.push(
+      '',
+      'TERMINAL AFFORDANCES — first appearance of an unexplained one → name the on-screen element + what it is for; already explained → one clause at most, or nothing.',
+      `  already explained: ${done.length ? done.map((k) => AFFORDANCE_LABELS[k]).join('; ') : '(none yet)'}`,
+      `  not yet explained: ${todo.length ? todo.map((k) => AFFORDANCE_LABELS[k]).join('; ') : '(all covered)'}`,
+    )
   }
 
   // Artifact status — gate + provenance, so the Director drafts sensibly and
@@ -1201,6 +1382,70 @@ Reply with ONLY the exact key, or NONE. Nothing else.`
   // Tolerate a near-miss (model echoed a key fragment) — exact tail match only.
   const hit = catalog.find((c) => c.key.endsWith(ans) || `artifact:${ans}` === c.key)
   return hit ? hit.key : null // unmappable → fall back to deterministic
+}
+
+// --- The Observer (cheap Haiku "over-the-shoulder" watcher) --------------------------
+// Reads the live terminal on a work-landed / heartbeat glance and does TWO jobs in one
+// call: (1) rewrites a rolling, plain-English SITUATION summary of the build so the
+// Director stays oriented on EVERY turn (reactive too), and (2) judges whether THIS moment
+// is worth the Director speaking to (salient) and what kind. This replaces the brittle
+// client-side regex classification for activity/errors with something that actually
+// understands the terminal — regexes still handle the latency-critical permission/trust
+// prompts and the learner's own typed prompt (those need no interpretation). Never throws.
+export const OBSERVER_MODEL = SUMMARY_MODEL // claude-haiku-4-5 — cheap, single-shot JSON
+export async function runObserver(env, { priorSituation, tail, studentName }) {
+  const clean = String(tail || '').trim()
+  if (!clean) return { situation: priorSituation || '', salient: false, kind: 'none', oneLine: '' }
+  const system = `You are the Observer: you watch ${studentName || 'a beginner'}'s coding terminal over their shoulder during a live build session and keep the INSTRUCTOR briefed. ${studentName || 'The learner'} is using Claude Code (an AI coding agent) in a real terminal to build a small web game for the first time. You never talk to the learner — you brief the instructor, who decides whether to speak.
+
+You are given the PREVIOUS situation summary and the LATEST terminal output. Reply with ONLY a JSON object, no prose:
+{
+  "situation": "<=55 words, plain English: the CURRENT state of the build — what exists now, what the agent just did, what the learner seems to be doing. Rewrite it fresh from prior+latest; do NOT just append.",
+  "salient": true|false,
+  "kind": "activity"|"error"|"none",
+  "oneLine": "<=25 words: the single most useful thing that just happened for the instructor to react to (empty string if not salient)"
+}
+
+Rules:
+- salient=true ONLY for a genuine teachable/needed beat: a chunk of work just LANDED (a feature built, the game now runs or visibly changed), a real ERROR the learner appears stuck on, or a natural fork worth a nudge.
+- salient=false for routine progress the learner is clearly following, mid-work churn, spinners, or nothing meaningfully changed since the prior situation. When unsure, false — an instructor who interrupts too often is worse than one who waits.
+- kind="error" ONLY when the output shows a real failure; otherwise "activity" (salient) or "none" (not).
+- Judge "changed since prior" against the PREVIOUS situation — do not re-flag something already reflected there.`
+  let raw
+  try {
+    raw = await callAnthropic(env, {
+      model: OBSERVER_MODEL,
+      max_tokens: 320,
+      system,
+      messages: [
+        {
+          role: 'user',
+          content: `PREVIOUS situation:\n"""\n${(priorSituation || '(none yet — first glance)').slice(0, 600)}\n"""\n\nLATEST terminal output (ANSI already stripped):\n"""\n${clean.slice(-3500)}\n"""`,
+        },
+      ],
+    })
+  } catch {
+    return { situation: priorSituation || '', salient: false, kind: 'none', oneLine: '' }
+  }
+  // Defensive parse — pull the first {...} block; fall back to prior situation on garbage.
+  let obj = null
+  try {
+    const m = (raw || '').match(/\{[\s\S]*\}/)
+    if (m) obj = JSON.parse(m[0])
+  } catch {
+    obj = null
+  }
+  if (!obj || typeof obj !== 'object') {
+    return { situation: priorSituation || '', salient: false, kind: 'none', oneLine: '' }
+  }
+  const kind = obj.kind === 'error' ? 'error' : obj.kind === 'activity' ? 'activity' : 'none'
+  const salient = obj.salient === true && kind !== 'none'
+  return {
+    situation: (typeof obj.situation === 'string' && obj.situation.trim()) || priorSituation || '',
+    salient,
+    kind,
+    oneLine: salient ? String(obj.oneLine || '').slice(0, 300) : '',
+  }
 }
 
 // --- 3-tier canvas resolution for a settled turn ---

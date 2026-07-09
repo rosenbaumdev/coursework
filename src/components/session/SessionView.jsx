@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useLocation } from 'react-router-dom'
 import ProgressHeader from '../chat/ProgressHeader.jsx'
 import ChatMessages from '../chat/ChatMessages.jsx'
 import ChatInput from '../chat/ChatInput.jsx'
 import ContentCanvas from './ContentCanvas.jsx'
 import SplitPane from './SplitPane.jsx'
+import ShipCard from './ShipCard.jsx'
+import { createTerminalSentinel } from '../../session/terminalEvents.js'
 import OrientationToggle from './OrientationToggle.jsx'
 import { useScriptedSessionDriver, useSSESessionDriver } from '../../session/useSessionDriver.js'
 import { SHOWCASE_SESSION } from '../../session/scriptedSession.js'
@@ -13,6 +15,9 @@ import { getStudent } from '../../students.js'
 
 const NARROW_QUERY = '(max-width: 767px)'
 const DEFAULT_RATIO = 0.6
+// Proactive events exempt from the 25s anti-chatty gap: time-critical prompts/errors and
+// the learner's own typed prompt (#4). Only the Observer's "work landed" glance waits.
+const GAP_EXEMPT = new Set(['permission-prompt', 'trust-prompt', 'error', 'learner-prompt'])
 const LS = {
   orientation: 'session:orientation',
   orientationLocked: 'session:orientationLocked',
@@ -32,6 +37,16 @@ function decideOrientation(vw, vh, type) {
 
 export default function SessionView() {
   const { studentSlug } = useParams()
+  const _params = new URLSearchParams(useLocation().search)
+  const dayId = _params.get('day') || '1'
+  // Dev override: let the live-IDE URLs ride in the course URL so the workshop goes
+  // live without prod env vars. Accept BOTH the session spelling (termUrl/termToken)
+  // AND the /workshop demo spelling (url/token) — they must not diverge. Test affordance.
+  const devTerm = {
+    url: _params.get('termUrl') || _params.get('url'),
+    token: _params.get('termToken') || _params.get('token') || '',
+    viewer: _params.get('viewer'),
+  }
   const student = getStudent(studentSlug)
   const studentName = student?.name
 
@@ -79,7 +94,9 @@ export default function SessionView() {
   // It also reports whether the learner has actually SEEN the current directive —
   // on a phone the canvas hides behind a tab, and "he's been shown X" objectives
   // must track reality, not assumption.
-  function buildContext() {
+  // opts.peek (proactive turns): read the canvas/terminal state WITHOUT consuming the
+  // marquee selection — a terminal-triggered turn must not clear what the learner pinned.
+  function buildContext(opts = {}) {
     const directive = canvasRef.current
     let canvasContext = describeCanvas(directive, liveStateRef.current)
     if (directive) {
@@ -89,7 +106,7 @@ export default function SessionView() {
     const selection = pendingSelectionRef.current
       ? { text: pendingSelectionRef.current.text, note: pendingSelectionRef.current.note }
       : null
-    setPendingSelection(null)
+    if (!opts.peek) setPendingSelection(null)
     return { canvasContext, selection }
   }
 
@@ -98,7 +115,7 @@ export default function SessionView() {
   // session pack (or there's no slug), the scripted showcase takes over.
   const live = useSSESessionDriver({
     studentSlug,
-    day: '1',
+    day: dayId,
     buildContext,
     enabled: Boolean(studentSlug),
   })
@@ -123,6 +140,85 @@ export default function SessionView() {
   // pack to enumerate and no resolve endpoint to browse into.
   const catalog = isLive ? live.catalog : []
   const artifactsById = isLive ? live.artifacts : {}
+  // #9 mandatory ship gate (requiresShip days): show the ShipCard overlay when the
+  // server says all objectives are done but the game isn't shipped + signed off yet.
+  const awaitingShip = isLive ? live.awaitingShip : false
+  const markSignedOff = isLive ? live.markSignedOff : () => {}
+  const [shipCardOpen, setShipCardOpen] = useState(false)
+  // Auto-open the card the moment the gate arrives; if dismissed, the banner re-opens it.
+  useEffect(() => { if (awaitingShip) setShipCardOpen(true) }, [awaitingShip])
+
+  // Proactive Director turns (#2/#4/#5): the terminal Sentinel + firing POLICY live here —
+  // the only place with the live driver. Detection/dedup is in the Sentinel; this layer
+  // adds the throttle and calls the driver. The driver itself guards against racing a
+  // learner turn, so this stays lean.
+  const sentinelRef = useRef(null)
+  if (!sentinelRef.current) sentinelRef.current = createTerminalSentinel()
+  const lastProactiveAtRef = useRef(0)
+  // Observer glance coordination: one in flight at a time, throttled, and skipped when the
+  // terminal tail hasn't changed since the last look (no point re-reading an idle screen).
+  const glanceInFlightRef = useRef(false)
+  const lastGlanceAtRef = useRef(0)
+  const lastGlanceTailRef = useRef('')
+
+  // Fire a proactive Director turn for an event, respecting the global chatty-gap. Most
+  // events are gap-EXEMPT because they're either time-critical (a permission/trust prompt
+  // must beat the learner's Enter; an error shouldn't wait while he stares at a red wall) or
+  // learner-initiated and inherently worth a reply (his OWN typed prompt — #4, the core
+  // teachable moment, already rate-limited by the Sentinel's 8s cooldown). Only the
+  // Observer's unsolicited "work landed" glance waits out the 25s gap; [PASS] then culls
+  // whatever isn't worth words.
+  function fireProactive(event) {
+    if (!event) return
+    const now = Date.now()
+    if (!GAP_EXEMPT.has(event.type) && now - lastProactiveAtRef.current < 25000) return
+    lastProactiveAtRef.current = now
+    live.sendProactive(event)
+  }
+
+  // A chunk of work LANDED (LiveTerminal settle). This is the "watch the goings-on" path:
+  // hand the terminal to the Observer (Haiku), which keeps the rolling situation fresh AND
+  // decides if the moment is worth the Director speaking. Salient → fire a proactive turn
+  // with the Observer's one-liner. Throttled + deduped so Haiku isn't called on idle noise.
+  async function runObserverGlance(tail) {
+    if (glanceInFlightRef.current) return
+    const now = Date.now()
+    if (now - lastGlanceAtRef.current < 5000) return // floor on Haiku calls; settles are ≥3s apart anyway
+    const key = (tail || '').slice(-600)
+    if (key === lastGlanceTailRef.current) return // nothing new on screen since last glance
+    lastGlanceAtRef.current = now
+    lastGlanceTailRef.current = key
+    glanceInFlightRef.current = true
+    try {
+      const res = await fetch(`/${studentSlug}/api/session/glance`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ day: dayId, tail: (tail || '').slice(-4000) }),
+      })
+      if (!res.ok) return
+      const data = await res.json().catch(() => null)
+      if (data?.salient) fireProactive({ type: data.kind || 'activity', excerpt: data.oneLine || '' })
+    } catch {
+      /* fail-open — a missed glance just means no nudge this moment */
+    } finally {
+      glanceInFlightRef.current = false
+    }
+  }
+
+  function handleTerminalEvent(signal) {
+    if (!isLive || live.phase !== 'active') return
+    // Work-landed → the Observer interprets it (activity/error/nothing). Everything else is
+    // fast, unambiguous, and latency-sensitive, so the client-side Sentinel handles it
+    // directly: permission/trust prompts (must beat Enter) and the learner's own typed
+    // prompt (we already have the exact words — no interpretation needed).
+    if (signal?.kind === 'settled') { runObserverGlance(signal.text); return }
+    const s = sentinelRef.current
+    const event =
+      signal?.kind === 'output' ? s.onOutput(signal.text)
+        : signal?.kind === 'learner-prompt' ? s.onLearnerPrompt(signal.text)
+        : null
+    fireProactive(event)
+  }
 
   // Refs so buildContext (captured by the driver) reads the latest values.
   const canvasRef = useRef(null)
@@ -245,13 +341,20 @@ export default function SessionView() {
   // and a frame still queued in pendingCanvas (new material waiting to swap
   // in) — either way there's something worth a tap. Suppressed while browsing
   // history (that has its own "Return to current" affordance).
+  // Shown under the latest chat response (the trailing slot). Narrow: whenever the
+  // chat tab holds unseen/queued material. Wide: whenever a frame is QUEUED
+  // (pendingCanvas) — on wide the live canvas is already visible, so "not seen"
+  // doesn't apply; only a pending swap warrants a nudge. It pulses to stand apart
+  // from the optional-answer chips (a navigation, not a reply). Suppressed while
+  // browsing history (that has its own "Return to current" affordance).
   const showContinue =
-    isNarrow &&
     !browsing &&
-    (hasCanvas || Boolean(pendingCanvas)) &&
-    activeTab === 'chat' &&
-    (Boolean(pendingCanvas) || !currentSeen) &&
-    !sending
+    !sending &&
+    ((isNarrow &&
+      activeTab === 'chat' &&
+      (hasCanvas || Boolean(pendingCanvas)) &&
+      (Boolean(pendingCanvas) || !currentSeen)) ||
+      (!isNarrow && Boolean(pendingCanvas)))
   const continueTitle = pendingCanvas?.title || shownDirective?.title || 'the canvas'
 
   // Unified accept: swap in whatever's pending (if anything) and reveal the
@@ -335,7 +438,7 @@ export default function SessionView() {
       const res = await fetch(`/${studentSlug}/api/session/canvas`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ day: '1', target: item.key }),
+        body: JSON.stringify({ day: dayId, target: item.key }),
       })
       const data = await res.json().catch(() => null)
       if (res.ok && data?.directive) setBrowsedDirective(data.directive)
@@ -398,15 +501,32 @@ export default function SessionView() {
   // shownDirective (declared above, alongside canvasRef) already retains the
   // last live directive while sliding away, AND resolves a browsed history
   // entry when one is active — both cases slide/render correctly here.
+  // Any dev param present overlays the server-injected workshop payload. URLs now
+  // come from env ([vars]); a link may still carry just ?token= until the secret is
+  // set. Each field falls back to the server value, so partial params compose.
+  const shownDirectiveFinal =
+    shownDirective?.type === 'workshop' && (devTerm.url || devTerm.token || devTerm.viewer)
+      ? {
+          ...shownDirective,
+          payload: {
+            ...shownDirective.payload,
+            wsUrl: devTerm.url || shownDirective.payload?.wsUrl || '',
+            token: devTerm.token || shownDirective.payload?.token || '',
+            viewerUrl: devTerm.viewer || shownDirective.payload?.viewerUrl || '',
+          },
+        }
+      : shownDirective
+
   const canvasPane = (
     <div className="h-full flex flex-col min-h-0">
       <div className="flex-1 min-h-0 relative">
         <ContentCanvas
-          directive={shownDirective}
+          directive={shownDirectiveFinal}
           selecting={selecting}
           onToggleSelect={() => setSelecting((v) => !v)}
           onSelect={onSelect}
-          onLiveState={reportLiveState}
+          onLiveState={reportLiveState.current}
+          onEvent={handleTerminalEvent}
           pinnedRect={pendingSelection?.rectPct}
         />
         {browsing ? (
@@ -432,7 +552,7 @@ export default function SessionView() {
               <button
                 type="button"
                 onClick={acceptPendingCanvas}
-                className="max-w-full rounded-full bg-accent px-4 py-2 text-[12px] font-semibold text-white shadow-card active:scale-[0.98] flex items-center gap-2 session-fade"
+                className="continue-pulse max-w-full rounded-full bg-accent px-4 py-2 text-[12px] font-semibold text-white shadow-card active:scale-[0.98] flex items-center gap-2 session-fade"
               >
                 <span className="truncate">Continue to {pendingCanvas.title}</span>
                 <span aria-hidden>→</span>
@@ -460,7 +580,7 @@ export default function SessionView() {
       {!isNarrow && (
         <ProgressHeader
           label={isLive ? 'Course Session' : 'Coached Session'}
-          courseTitle={isLive ? `Day 1 — ${live.dayTitle || '…'}` : SHOWCASE_SESSION.title}
+          courseTitle={isLive ? `Day ${dayId} — ${live.dayTitle || '…'}` : SHOWCASE_SESSION.title}
           ticked={progress.ticked}
           totalRequired={progress.totalRequired}
           focus={progress.focus}
@@ -487,13 +607,13 @@ export default function SessionView() {
           streamingLastEmpty={streamingLastEmpty}
           trailing={
             showContinue ? (
-              // Narrow only, INLINE at the end of the latest bubble: the learner
-              // must scroll through the instruction to reach it (can't skip), and
-              // it frees the bottom bar. No auto-shift ever yanks the chat away.
+              // INLINE at the end of the latest response (both viewports): a distinct,
+              // full-width navigation bar — NOT a reply chip. It pulses so it reads as
+              // "the thing to do next" and stands apart from the optional-answer chips.
               <button
                 type="button"
                 onClick={continueToCanvas}
-                className="w-full rounded-xl bg-accent px-4 py-3 text-[13px] font-semibold text-white shadow-card active:scale-[0.99] session-fade flex items-center justify-center gap-2"
+                className="continue-pulse w-full rounded-xl bg-accent px-4 py-3 text-[13px] font-semibold text-white shadow-card active:scale-[0.99] session-fade flex items-center justify-center gap-2"
               >
                 <span className="truncate">Continue to {continueTitle}</span>
                 <span aria-hidden>→</span>
@@ -528,6 +648,26 @@ export default function SessionView() {
     // containers do (chat list, canvas content, terminal inside its frame).
     // `relative` anchors the history popover.
     <div className="relative h-[100dvh] flex flex-col overflow-hidden bg-paper">
+      {isLive && awaitingShip && phase !== 'done' && (
+        shipCardOpen ? (
+          <ShipCard
+            studentSlug={studentSlug}
+            day={dayId}
+            onDone={markSignedOff}
+            onClose={() => setShipCardOpen(false)}
+          />
+        ) : (
+          // Dismissed to the workshop — a persistent nudge to come finish. The session
+          // stays open (awaitingShip) until they ship + sign off.
+          <button
+            type="button"
+            onClick={() => setShipCardOpen(true)}
+            className="absolute top-3 right-3 z-50 rounded-full bg-accent px-4 py-2 text-[13px] font-semibold text-white shadow-card hover:brightness-110 continue-pulse"
+          >
+            🚀 Ship &amp; finish today
+          </button>
+        )
+      )}
       {isNarrow ? (
         // Compact, translucent single-row header (Grok-style): title + progress
         // pill + slim progress line + nav/settings chips. ~46px total (~5-6% of a
@@ -597,6 +737,11 @@ export default function SessionView() {
       ) : (
         <div className="shrink-0 border-b border-rule bg-white flex items-center justify-between gap-3 px-4 sm:px-6 py-2.5">
           <div className="flex items-center gap-3 min-w-0">
+            <img
+              src="/coursework-logo-techy.png"
+              alt="Coursework"
+              className="shrink-0 h-[30px] w-auto"
+            />
             <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted truncate">
               {studentName || 'Coursework'}
             </span>

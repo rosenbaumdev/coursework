@@ -1,10 +1,39 @@
 import { useEffect, useRef, useState } from 'react'
 import { initialState, run, promptFor, readFile, writeFile } from '../../../session/vsh.js'
+import LiveTerminal from './LiveTerminal.jsx'
+
+// Dispatcher: mode:'live' → real PTY over wss (droplet); otherwise the sandbox sim.
+export default function TerminalCanvas({ payload, onLiveState }) {
+  if (payload?.mode === 'live') return <LiveTerminalCanvas payload={payload} onLiveState={onLiveState} />
+  return <SimTerminal payload={payload} onLiveState={onLiveState} />
+}
+
+// Live terminal: xterm.js in the chrome frame, wired to the droplet PTY bridge.
+function LiveTerminalCanvas({ payload, onLiveState }) {
+  const [status, setStatus] = useState('connecting')
+  const dot = status === 'connected' ? 'bg-[#28c840]' : status === 'error' || status === 'closed' ? 'bg-[#ff5f57]' : 'bg-[#febc2e]'
+  return (
+    <div className="h-full p-3 sm:p-4">
+      <div className="h-full flex flex-col rounded-lg overflow-hidden border border-[#2a2a2a] bg-[#111] shadow-card">
+        <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b border-[#2a2a2a]">
+          <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
+          <span className="h-3 w-3 rounded-full bg-[#febc2e]" />
+          <span className="h-3 w-3 rounded-full bg-[#28c840]" />
+          <span className="ml-2 font-mono text-[11px] text-[#9ca3af]">{payload.label || 'coursework-vm — bash'}</span>
+          <span className={`ml-auto h-2 w-2 rounded-full ${dot}`} title={status} />
+        </div>
+        <div className="flex-1 min-h-0 p-2">
+          <LiveTerminal url={payload.wsUrl} token={payload.token} onStatus={setStatus} onLiveState={onLiveState} />
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // Interactive simulated shell over the vsh virtual filesystem. Real-feeling (paths,
 // flags, redirects, history, an `edit` editor) but no real execution/persistence —
-// a training sandbox. `mode:'live'` (PTY over SSH) is the future swap; not here yet.
-export default function TerminalCanvas({ payload, onLiveState }) {
+// a training sandbox.
+function SimTerminal({ payload, onLiveState }) {
   const stRef = useRef(null)
   if (!stRef.current) stRef.current = initialState()
   const st = stRef.current

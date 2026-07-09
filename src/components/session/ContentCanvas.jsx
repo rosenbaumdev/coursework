@@ -6,6 +6,7 @@ import VideoCanvas from './canvas/VideoCanvas.jsx'
 import ImageCanvas from './canvas/ImageCanvas.jsx'
 import BrowserCanvas from './canvas/BrowserCanvas.jsx'
 import TerminalCanvas from './canvas/TerminalCanvas.jsx'
+import WorkshopCanvas from './canvas/WorkshopCanvas.jsx'
 import ArtifactCanvas from './canvas/ArtifactCanvas.jsx'
 import FigureCanvas from './canvas/FigureCanvas.jsx'
 import CompareCanvas from './canvas/CompareCanvas.jsx'
@@ -17,6 +18,7 @@ const RENDERERS = {
   image: ImageCanvas,
   browser: BrowserCanvas,
   terminal: TerminalCanvas,
+  workshop: WorkshopCanvas,
   artifact: ArtifactCanvas,
   figure: FigureCanvas,
   compare: CompareCanvas,
@@ -160,6 +162,7 @@ export default function ContentCanvas({
   onToggleSelect,
   onSelect,
   onLiveState,
+  onEvent,
   pinnedRect,
 }) {
   if (!directive) {
@@ -197,7 +200,7 @@ export default function ContentCanvas({
 
       <div key={directive.id} className="session-fade relative flex-1 min-h-0">
         {Renderer ? (
-          <Renderer payload={directive.payload || {}} onLiveState={onLiveState} />
+          <Renderer payload={directive.payload || {}} onLiveState={onLiveState} onEvent={onEvent} />
         ) : (
           <div className="h-full flex items-center justify-center p-8">
             <p className="font-mono text-[12px] text-muted">Unknown canvas type: {directive.type}</p>

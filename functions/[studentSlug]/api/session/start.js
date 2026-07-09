@@ -44,6 +44,7 @@ import {
   MAX_NEW_TICKS_PER_TURN,
   SESSION_MODEL,
   SESSION_EFFORT,
+  injectLiveSurfaces,
 } from '../../../_session.js'
 import { TANGENT_TABLE_ID } from '../../../_sessionPacks.js'
 
@@ -151,7 +152,7 @@ async function settleOpener(env, session, pack, rawText, emitDelta) {
     resumed: false,
     messages: [{ role: 'assistant', content: cleanText }],
     suggestions,
-    canvas: currentCanvasDirective(pack, session),
+    canvas: injectLiveSurfaces(currentCanvasDirective(pack, session), env, getStudent(session.studentSlug)),
     artifacts: session.artifacts,
     catalog: buildCanvasCatalog(pack, session), // Contents Menu (Build 1)
     sessionDone: false,
@@ -186,18 +187,26 @@ export async function onRequestPost({ params, env, request }) {
 
   // Resume: rehydrate the client with history, chips, current canvas, progress.
   if (existing && existing.v === 2) {
+    const prog = progressInfo(pack, existing.inventoryState)
+    // #9: resumed at the ship gate — all objectives done, but a requiresShip day that
+    // hasn't been shipped + signed off. Re-surfaces the mandatory ShipCard on reload.
+    const awaitingShip = Boolean(
+      pack.requiresShip && !existing.completed && !existing.signedOff &&
+      prog.totalRequired > 0 && prog.ticked >= prog.totalRequired,
+    )
     return jsonResponse({
       resumed: true,
       messages: existing.history,
       suggestions: existing.lastSuggestions || [],
-      canvas: currentCanvasDirective(pack, existing),
+      canvas: injectLiveSurfaces(currentCanvasDirective(pack, existing), env, student),
       artifacts: existing.artifacts,
       catalog: buildCanvasCatalog(pack, existing), // Contents Menu (Build 1)
       sessionDone: Boolean(existing.completed),
+      awaitingShip,
       seq: existing.seq,
       day: dayId,
       dayTitle: pack.title,
-      ...progressInfo(pack, existing.inventoryState),
+      ...prog,
     })
   }
 

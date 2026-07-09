@@ -1,0 +1,19 @@
+# Per-user app viewer (serves the user's ~/app over HTTP on their own port).
+# Template unit: `coursework-app@zachary` runs as unix user `zachary`, serving
+# /home/zachary/app. ${APP_PORT} is expanded from the per-user EnvironmentFile.
+#
+#   systemctl enable --now coursework-app@zachary
+[Unit]
+Description=Coursework app viewer for %i
+After=network.target
+
+[Service]
+User=%i
+EnvironmentFile=/etc/coursework/%i.env
+WorkingDirectory=/home/%i/app
+ExecStart=/usr/bin/python3 -m http.server ${APP_PORT} --bind 127.0.0.1
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

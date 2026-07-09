@@ -15,7 +15,7 @@
 
 import { errorResponse, jsonResponse } from '../../../_shared.js'
 import { getStudent, getCourse } from '../../../_students.js'
-import { getSessionPack, loadLesson, resolveFigureDir } from '../../../_session.js'
+import { getSessionPack, loadLesson, resolveFigureDir, injectLiveSurfaces } from '../../../_session.js'
 
 export async function onRequestPost({ params, env, request }) {
   const { studentSlug } = params
@@ -45,5 +45,5 @@ export async function onRequestPost({ params, env, request }) {
   const directive = resolveFigureDir(pack, session, target)
   if (!directive) return errorResponse(`Unknown or unresolvable target "${target}"`, 404)
 
-  return jsonResponse({ directive })
+  return jsonResponse({ directive: injectLiveSurfaces(directive, env, student) })
 }

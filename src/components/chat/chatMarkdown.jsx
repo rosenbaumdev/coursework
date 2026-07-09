@@ -36,9 +36,23 @@ function textOf(node) {
   return ''
 }
 
+// Blocks that rely on fixed-width alignment (ASCII art, box-drawing diagrams,
+// ASCII tables) must NOT wrap — wrapping destroys their layout, so they keep the
+// horizontal scroll. Everything else (prompts, commands, prose) wraps so it never
+// scrolls sideways inside a chat bubble. Box-drawing chars / table borders are the
+// strong signal; plain prompt text has neither.
+function looksLikeAsciiRender(text) {
+  if (/[│─┌┐└┘├┤┬┴┼╭╮╰╯═║╔╗╚╝▁▔█▄▀▌▐░▒▓]/.test(text)) return true
+  const lines = text.split('\n')
+  // ASCII table border rows like +------+ or |---|---|
+  if (lines.some((l) => /[-]{3,}/.test(l) && /^[\s|+].*[|+][\s]*$/.test(l))) return true
+  return false
+}
+
 // Code block with a copy control in the corner (#13).
 function PreBlock({ children }) {
   const [copied, setCopied] = useState(false)
+  const ascii = looksLikeAsciiRender(textOf(children))
   async function copy() {
     if (await copyText(textOf(children).replace(/\n$/, ''))) {
       setCopied(true)
@@ -47,7 +61,11 @@ function PreBlock({ children }) {
   }
   return (
     <div className="relative group/pre my-2">
-      <pre className="bg-white border border-rule rounded-md p-3 overflow-x-auto text-[12px]">
+      <pre
+        className={`bg-white border border-rule rounded-md p-3 text-[12px] ${
+          ascii ? 'overflow-x-auto' : 'whitespace-pre-wrap [overflow-wrap:anywhere]'
+        }`}
+      >
         {children}
       </pre>
       <button
