@@ -389,7 +389,7 @@ export default function LiveTerminal({ url, token, getToken, onStatus, onLiveSta
       <button
         {...hold(() => setPanelOpen((v) => !v))}
         aria-label="Terminal controls"
-        className={`absolute bottom-2 right-2 z-30 grid h-8 place-items-center rounded-lg border border-white/25 px-2.5 font-extrabold text-[11px] tracking-[0.08em] backdrop-blur-md transition ${
+        className={`absolute bottom-2 right-2 z-30 grid h-5 place-items-center rounded-sm border border-white/25 px-1 font-mono text-[9px] font-bold leading-none tracking-[0.12em] backdrop-blur-md transition ${
           panelOpen ? 'bg-white/30 text-white' : 'bg-white/15 text-white/90 hover:bg-white/25'
         }`}
       >
