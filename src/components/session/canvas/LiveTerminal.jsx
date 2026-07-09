@@ -392,15 +392,15 @@ export default function LiveTerminal({ url, token, getToken, onStatus, onLiveSta
         </div>
       )}
 
-      {/* Floating, semi-transparent toggle — bottom-right of the terminal. */}
+      {/* Floating, white-tinged translucent toggle — bottom-right of the terminal. */}
       <button
         {...hold(() => setPanelOpen((v) => !v))}
         aria-label="Terminal controls"
-        className={`absolute bottom-2 right-2 z-30 grid h-9 w-9 place-items-center rounded-full border border-white/15 text-[15px] backdrop-blur-md transition ${
-          panelOpen ? 'bg-white/25 text-white' : 'bg-white/10 text-[#e5e7eb] hover:bg-white/20'
+        className={`absolute bottom-2 right-2 z-30 grid h-8 place-items-center rounded-lg border border-white/25 px-2.5 font-extrabold text-[11px] tracking-[0.08em] backdrop-blur-md transition ${
+          panelOpen ? 'bg-white/30 text-white' : 'bg-white/15 text-white/90 hover:bg-white/25'
         }`}
       >
-        ⌨
+        CTRL
       </button>
     </div>
   )
