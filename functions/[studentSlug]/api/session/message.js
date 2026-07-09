@@ -59,6 +59,7 @@ import {
   SESSION_EFFORT,
   injectLiveSurfaces,
   hasLiveWorkshop,
+  isOnLiveWorkshop,
   loadGlance,
   PROACTIVE_MAX_PER_SESSION,
   PROACTIVE_MAX_TOKENS,
@@ -316,8 +317,16 @@ export async function onRequestPost({ params, env, request }) {
         // in the pilot — this makes the canvas track the Director's OWN words
         // regardless of whether the tag fired. Delivered as a `requested` frame
         // (forced-emit + client displays immediately, no pending pill).
+        // GUARD: never let the INFERRED (say-do) repair yank the learner off a LIVE
+        // workshop surface. On Day 2 the canvas is the real terminal + app viewer; the
+        // Director's deictic prose there ("look at the error", "see your build") — often
+        // biased by the learner's injected marquee-selection text — refers to THIS live
+        // pane. A forced retarget remounts the canvas, tears down the terminal socket +
+        // viewer iframe, and loses the learner's in-progress work (reported bug). Only an
+        // EXPLICIT [SHOW:] navigates away here (and that goes through the polite queued
+        // pill, not a force-yank).
         let forceRequested = false
-        if (!parsed.show && detectClaimedShow(cleanText)) {
+        if (!parsed.show && !isOnLiveWorkshop(pack, session) && detectClaimedShow(cleanText)) {
           // Robust primary: a constrained Haiku call resolves WHICH catalog target
           // the Director is pointing at (handles "take a look at the gear memo",
           // "line them up side by side" — phrasings regex kept missing). Tri-state

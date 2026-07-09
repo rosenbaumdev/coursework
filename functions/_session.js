@@ -159,6 +159,19 @@ export function hasLiveWorkshop(pack) {
   return Object.values(pack?.canvasProgram || {}).some((e) => e?.type === 'workshop')
 }
 
+// True when the canvas the learner is CURRENTLY looking at is a live workshop surface
+// (the real terminal + app viewer). Used to protect that pane from an INFERRED canvas
+// switch: deictic Director prose here refers to THIS live surface, so a forced retarget
+// would remount it — closing the terminal socket + destroying the viewer iframe — and
+// lose in-progress work. Mirrors programEntryFor's lookup (authored + dynamic program).
+export function isOnLiveWorkshop(pack, session) {
+  const key = session?.canvasTarget
+  if (!key) return false
+  const base = key.includes('#') ? key.slice(0, key.indexOf('#')) : key
+  const entry = pack?.canvasProgram?.[base] || session?.dynamicProgram?.[base]
+  return entry?.type === 'workshop'
+}
+
 // The terminal affordances the Director explains the FIRST time each appears (#2). Only
 // event types the Sentinel actually emits belong here — the ledger must not promise moments
 // that never fire. ("activity" — a chunk of work landing — is not a name-once affordance, so

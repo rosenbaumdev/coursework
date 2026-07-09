@@ -13,6 +13,13 @@ export default function ChatMessages({ messages, streamingLastEmpty, notice, tra
   const scrollRef = useRef(null)
   const prevCountRef = useRef(0)
   const lastSetRef = useRef(-1)
+  // Set true right before each programmatic scroll write so the resulting scroll event is
+  // consumed instead of being misread as the reader taking over. Without this, our own
+  // writes (and browser scroll-clamps from a layout shift — e.g. the canvas pane resizing
+  // the chat column) flipped the mode to 'free', and since streaming never grows the
+  // message count, pinTop never re-armed for the rest of the reply — the "streaming scroll
+  // worked for a bit then stopped" bug.
+  const selfScrollRef = useRef(false)
   // Per-turn steering mode: 'pinTop' (default — freeze new bubble's top at frame top),
   // 'followBottom' (reader tapped the down-arrow), 'free' (reader scrolled manually).
   const modeRef = useRef('pinTop')
@@ -22,13 +29,32 @@ export default function ChatMessages({ messages, streamingLastEmpty, notice, tra
 
   const NEAR_BOTTOM_PX = 80
   const TOP_GAP = 12 // breathing room above the pinned bubble
+
+  // The ONE place we move scrollTop programmatically — flags the write so onScroll won't
+  // mistake the echo (or a follow-on clamp) for a reader takeover, and records the exact
+  // value we set (no rounding) for the position check.
+  function setScrollTop(container, v) {
+    selfScrollRef.current = true
+    container.scrollTop = v
+    lastSetRef.current = container.scrollTop
+  }
+
   useEffect(() => {
     const container = scrollRef.current
     if (!container) return
     const onScroll = () => {
-      // A scroll we didn't set = the reader took over; stop steering this turn.
-      if (Math.abs(container.scrollTop - lastSetRef.current) > 4) modeRef.current = 'free'
       const dist = container.scrollHeight - container.scrollTop - container.clientHeight
+      if (selfScrollRef.current) {
+        // Our own write echoing back — consume it, never treat as reader takeover.
+        selfScrollRef.current = false
+      } else if (Math.abs(container.scrollTop - lastSetRef.current) > 4) {
+        // A scroll we didn't set. A downward clamp (the browser shrinking scrollTop to a
+        // new max after content/viewport shrinks) is NOT a reader action; only a genuine
+        // move is. Everything else = the reader took over; stop steering this turn.
+        const clampToBottom = container.scrollTop < lastSetRef.current && dist <= 1
+        if (!clampToBottom) modeRef.current = 'free'
+        lastSetRef.current = container.scrollTop
+      }
       setAtBottom(dist <= NEAR_BOTTOM_PX)
     }
     container.addEventListener('scroll', onScroll, { passive: true })
@@ -41,8 +67,7 @@ export default function ChatMessages({ messages, streamingLastEmpty, notice, tra
     const container = scrollRef.current
     if (!container) return
     modeRef.current = 'followBottom'
-    container.scrollTop = container.scrollHeight - container.clientHeight
-    lastSetRef.current = container.scrollTop
+    setScrollTop(container, container.scrollHeight - container.clientHeight)
     setAtBottom(true)
   }
 
@@ -65,10 +90,7 @@ export default function ChatMessages({ messages, streamingLastEmpty, notice, tra
 
     if (mode === 'followBottom') {
       const bottom = container.scrollHeight - container.clientHeight
-      if (Math.abs(bottom - container.scrollTop) > 1) {
-        container.scrollTop = bottom
-        lastSetRef.current = container.scrollTop
-      }
+      if (Math.abs(bottom - container.scrollTop) > 1) setScrollTop(container, bottom)
       setAtBottom(true)
       return
     }
@@ -83,10 +105,7 @@ export default function ChatMessages({ messages, streamingLastEmpty, notice, tra
       const delta = node.getBoundingClientRect().top - container.getBoundingClientRect().top
       const max = container.scrollHeight - container.clientHeight
       const target = Math.max(0, Math.min(container.scrollTop + delta - TOP_GAP, max))
-      if (Math.abs(container.scrollTop - target) > 1) {
-        container.scrollTop = target
-        lastSetRef.current = Math.round(target)
-      }
+      if (Math.abs(container.scrollTop - target) > 1) setScrollTop(container, target)
     }
     const dist = container.scrollHeight - container.scrollTop - container.clientHeight
     setAtBottom(dist <= NEAR_BOTTOM_PX)
