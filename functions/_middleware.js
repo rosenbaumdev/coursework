@@ -5,7 +5,7 @@
 //  - everything else → normal app routing.
 
 import { PLAY_HOST } from './_session.js'
-import { getEmail, getIdentity, canAccess } from './_access.js'
+import { getIdentity } from './_access.js'
 
 // Default-deny authorization (Phase II). Runs only when AUTHZ_ENFORCE is set, so the
 // code can ship DARK (deployed, no behavior change), be verified via /api/me, have grants
@@ -22,12 +22,11 @@ async function enforceAuthz(request, env, url) {
   const isApi = path.startsWith('/api/') || /^\/[^/]+\/api\//.test(path)
   if (!isApi) return null // HTML / assets — harmless shell; data is gated below
   if (path === '/api/me') return null // identity probe, safe for anon (returns empty identity)
-  if (!getEmail(request)) return denied(401) // gated route + no verified identity → fail closed
-  if (path.startsWith('/api/admin')) {
-    return (await getIdentity(request, env)).isAdmin ? null : denied(403)
-  }
+  const id = await getIdentity(request, env) // verifies the Access JWT
+  if (!id.email) return denied(401) // gated route + no verified identity → fail closed
+  if (path.startsWith('/api/admin')) return id.isAdmin ? null : denied(403)
   const m = path.match(/^\/([^/]+)\/api\//) // learner API: /<slug>/api/...
-  if (m) return (await canAccess(request, env, m[1])) ? null : denied(403)
+  if (m) return (id.isAdmin || id.courses.includes(m[1])) ? null : denied(403)
   return null // any other authenticated /api/* call
 }
 
