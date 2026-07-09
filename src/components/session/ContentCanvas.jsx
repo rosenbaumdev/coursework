@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { extractTerminalText } from '../../session/terminalSelection.js'
 import EmptyCanvas from './canvas/EmptyCanvas.jsx'
 import ReadingCanvas from './canvas/ReadingCanvas.jsx'
 import DeckCanvas from './canvas/DeckCanvas.jsx'
@@ -129,7 +130,9 @@ function Marquee({ onDone }) {
     }
     const thumb = captureThumb(ref.current.parentElement, selScreen)
     ref.current.style.pointerEvents = 'none' // let caret probing hit content beneath
-    const text = extractText(s.cx, s.cy, e.clientX, e.clientY)
+    // DOM caret probe first (text panes); if it finds nothing, try a live terminal under
+    // the selection (xterm is a <canvas>, so it reads from the terminal buffer instead).
+    const text = extractText(s.cx, s.cy, e.clientX, e.clientY) || extractTerminalText(selScreen)
     startRef.current = null
     setBox(null)
     onDone({ rectPct, text, thumb })

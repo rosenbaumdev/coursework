@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { copyText } from '../../chat/chatMarkdown.jsx'
+import { registerTerminalExtractor, terminalTextInScreenRect } from '../../../session/terminalSelection.js'
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform || '')
 function pasteFromClipboard(term) {
@@ -218,6 +219,10 @@ export default function LiveTerminal({ url, token, getToken, onStatus, onLiveSta
     const ro = new ResizeObserver(() => { safeFit(); sendResize() })
     ro.observe(hostRef.current)
 
+    // Let the marquee "Point" tool read real text out of this terminal (xterm paints to
+    // a <canvas>, so the DOM caret probe the marquee uses elsewhere finds nothing here).
+    const unregisterExtractor = registerTerminalExtractor((rect) => terminalTextInScreenRect(term, hostEl, rect))
+
     connect()
 
     return () => {
@@ -227,6 +232,7 @@ export default function LiveTerminal({ url, token, getToken, onStatus, onLiveSta
       if (reconnectTimer) clearTimeout(reconnectTimer)
       clearTimeout(t1); clearTimeout(t2)
       hostEl.removeEventListener('contextmenu', onContextMenu)
+      unregisterExtractor()
       ro.disconnect()
       dataSub.dispose()
       try { ws && ws.close() } catch {}
