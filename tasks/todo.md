@@ -15,10 +15,23 @@ platform API key default (BYOK-ready). Capacity: cap = 3 concurrent active sessi
 - [x] `workshop/provision-user.sh` — writes `WORKSHOP_USER`; no per-user token; shared secret at `/etc/coursework/signing.env`; `coursework-bridge@.service` loads it
 - [x] client — `LiveTerminal` fetches a fresh token per (re)connect via `WorkshopCanvas.getWorkshopToken`
 - [x] `wrangler.toml` — documents `WORKSHOP_SIGNING_SECRET` (retires `TERMINAL_TOKEN_<USER>`)
-- [ ] DEPLOY (Jonathan, root+CF): signing.env on droplet + `WORKSHOP_USER` on existing envs + copy server.mjs/service + restart bridges + set `WORKSHOP_SIGNING_SECRET` app secret + deploy app
-- [ ] verify live WS through tunnel — valid→whoami, cross-user→4001, expired→4001, rotate→old dead
+- [x] DEPLOY (Jonathan, root+CF): signing.env on droplet + `WORKSHOP_USER` on existing envs + copy server.mjs/service + restart bridges + set `WORKSHOP_SIGNING_SECRET` app secret + deploy app (2026-07-09)
+- [x] verify live WS through tunnel — valid→whoami=user, cross-user→4001, expired→4001; PLUS end-to-end with a REAL prod-app-minted token (2026-07-09)
 
-**Phase II** — session continuity + admin console + automated onboarding (registry, pull-provisioning daemon, authz layer, concurrency lease, admin features incl. per-learner progress/transcripts + "ask AI about learner"). **Phase III** — user settings (Director persona, BYOK key, profile, workspace reset, **theme choices**, a11y). Detail in the plan file.
+**Phase II — session continuity + admin console + automated onboarding.** Ordered, de-risked build (authz is high-blast-radius, so it ships DARK behind `AUTHZ_ENFORCE` and is flipped only after grants are populated + verified, right before CF Access is widened). Detail in the plan file.
+
+II-1 — Authorization foundation (dark first):
+- [ ] `functions/_access.js` — `getEmail` (from `Cf-Access-Authenticated-User-Email`), grants store `admin/access.json` in INTERVIEW (`{admins:[], grants:{email:[slugs]}}`), `BOOTSTRAP_ADMINS` env, `getIdentity`/`canAccess`/`load|saveGrants`
+- [ ] `functions/api/me.js` — `{email, isAdmin, courses}`
+- [ ] `functions/_middleware.js` — extend: after PLAY_HOST/redirect, if `env.AUTHZ_ENFORCE` → default-deny (`/api/admin/*`→admin; `/<slug>/api/*`→canAccess|admin; `/api/me`+HTML/assets pass; no email on gated route→401). Public game host stays open (handled upstream).
+- [ ] deploy DARK (flag unset = no-op), set `BOOTSTRAP_ADMINS` secret (Jonathan's Access email), verify `/api/me` returns `isAdmin:true`
+- [ ] populate grants for current users (jordan→jordan, zachary→zachary), then flip `AUTHZ_ENFORCE=1`, verify fail-closed (ungranted email → 403), THEN Jonathan widens the CF Access policy
+II-2 — Runtime learner registry: `admin/registry.json` overlay on code seeds; `getStudent`/`getCourse` merge; client resolves unknown slugs via `api/student` (or fold into `me`)
+II-3 — Admin console (read-first): `/admin` route + `AdminView.jsx` + `functions/api/admin/*` — roster, per-learner progress + transcripts, "ask AI about this learner"; then invite/create-learner
+II-4 — Pull provisioning: `admin/provision-queue/*` in R2 + `workshop/provision-daemon.mjs` (root systemd) → runs `provision-user.sh`, writes `admin/provision-status/*`; invite flow end-to-end
+II-5 — Session continuity + concurrency lease (cap 3): `admin/leases.json`, acquire in `start.js`, renew in glance/message, release on signoff + TTL; warm/reap; `claude --resume` recovery
+
+**Phase III** — user settings (Director persona, BYOK key, profile, workspace reset, **theme choices**, a11y). Detail in the plan file.
 
 ---
 
