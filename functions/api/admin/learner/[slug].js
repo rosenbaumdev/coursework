@@ -2,9 +2,34 @@
 // Admin only. Data-driven: enumerates whatever day lessons exist in R2 for their course.
 import { requireAdmin } from '../../../_access.js'
 import { jsonResponse, errorResponse } from '../../../_shared.js'
-import { getStudent, getCourse } from '../../../_students.js'
+import { getStudent, getCourse, loadRegistry, saveRegistry } from '../../../_students.js'
 import { loadLesson, loadGlance } from '../../../_session.js'
 import { getSessionPack, progressInfo } from '../../../_sessionPacks.js'
+
+// POST /api/admin/learner/:slug  { name?, email?, status? } → edit mutable learner fields.
+// Writes a registry override (works for code-seed learners too; the seed still provides the
+// course/workshop config). Admin only.
+const EDITABLE = ['name', 'email', 'status']
+export async function onRequestPost({ request, env, params }) {
+  const blocked = await requireAdmin(request, env)
+  if (blocked) return blocked
+  const slug = params.slug
+  if (!getStudent(slug)) return errorResponse('Unknown learner', 404)
+  const body = await request.json().catch(() => ({}))
+  const registry = await loadRegistry(env)
+  const entry = { ...(registry[slug] || {}) }
+  let changed = false
+  for (const k of EDITABLE) {
+    if (typeof body[k] === 'string' && body[k].trim()) {
+      entry[k] = body[k].trim()
+      changed = true
+    }
+  }
+  if (!changed) return errorResponse('No editable fields provided', 400)
+  registry[slug] = entry
+  await saveRegistry(env, registry)
+  return jsonResponse({ ok: true, slug, applied: Object.fromEntries(EDITABLE.filter((k) => entry[k] != null).map((k) => [k, entry[k]])) })
+}
 
 export async function onRequestGet({ request, env, params }) {
   const blocked = await requireAdmin(request, env)

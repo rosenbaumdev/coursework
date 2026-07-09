@@ -18,8 +18,16 @@ export async function onRequestPost({ request, env }) {
 
   const body = await request.json().catch(() => ({}))
   const slug = body?.slug
-  const question = (body?.question || '').trim()
-  if (!slug || !question) return errorResponse('slug and question required', 400)
+  // Multi-turn: accept a full chat history (messages), or a single question (back-compat).
+  const messages = Array.isArray(body?.messages)
+    ? body.messages
+        .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+        .map((m) => ({ role: m.role, content: m.content }))
+    : body?.question
+    ? [{ role: 'user', content: String(body.question) }]
+    : []
+  if (!slug || !messages.length) return errorResponse('slug and messages (or question) required', 400)
+  if (messages[messages.length - 1].role !== 'user') return errorResponse('last message must be from the admin', 400)
   const student = getStudent(slug)
   if (!student) return errorResponse('Unknown learner', 404)
   const courseSlug = body?.courseSlug || getCourse(slug)?.slug
@@ -81,7 +89,7 @@ export async function onRequestPost({ request, env }) {
       effort: SESSION_EFFORT,
       max_tokens: 900,
       system,
-      messages: [{ role: 'user', content: question }],
+      messages,
     })
   } catch (err) {
     return errorResponse(`Model call failed: ${err.message}`, 502)

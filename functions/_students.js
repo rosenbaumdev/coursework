@@ -114,15 +114,30 @@ export async function saveRegistry(env, registry) {
 // Refresh the merged (code seeds + registry) view. Cheap: cached for REGISTRY_TTL_MS and
 // only reads R2 on a cache miss. Never throws — a registry read failure just falls back to
 // the code seeds. Call once per request (middleware) before any getStudent.
+// Registry can override a few MUTABLE fields (admin "user maintenance") even on a code
+// seed — without redefining the seed's course/workshop config.
+function applyOverrides(student, reg) {
+  if (!reg || typeof reg !== 'object') return student
+  const out = { ...student }
+  if (reg.name) out.name = reg.name
+  if (reg.email) out.email = reg.email
+  if (reg.status) out.status = reg.status
+  return out
+}
+
 export async function primeStudents(env) {
   const now = Date.now()
   if (_merged && now - _mergedAt < REGISTRY_TTL_MS) return _merged
   const registry = await loadRegistry(env)
-  const fromRegistry = {}
-  for (const [slug, e] of Object.entries(registry)) {
-    if (e && typeof e === 'object' && e.courseSlug) fromRegistry[slug] = registryToStudent(slug, e)
+  const merged = {}
+  const slugs = new Set([...Object.keys(STUDENTS), ...Object.keys(registry)])
+  for (const slug of slugs) {
+    const seed = STUDENTS[slug]
+    const reg = registry[slug]
+    if (seed) merged[slug] = applyOverrides(seed, reg) // code seed provides course/workshop; registry can edit name/email/status
+    else if (reg && reg.courseSlug) merged[slug] = registryToStudent(slug, reg)
   }
-  _merged = { ...fromRegistry, ...STUDENTS } // code seeds win on clash
+  _merged = merged
   _mergedAt = now
   return _merged
 }
