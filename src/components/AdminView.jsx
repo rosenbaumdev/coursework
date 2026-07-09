@@ -171,6 +171,136 @@ function EditLearner({ detail, onSaved }) {
   )
 }
 
+const BTN = 'rounded-md border border-rule px-2.5 py-1 text-[12px] font-medium text-ink hover:border-accent disabled:opacity-50'
+
+function StatusPill({ status }) {
+  const s = status || 'active'
+  const cls =
+    s === 'active' ? 'bg-green-100 text-green-700'
+    : s === 'suspended' ? 'bg-amber-100 text-amber-700'
+    : s === 'provisioning' ? 'bg-blue-100 text-blue-700'
+    : 'bg-gray-100 text-gray-600'
+  return <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${cls}`}>{s}</span>
+}
+
+// VM provisioning status + suspend/resume/deprovision (enqueues for the droplet daemon).
+function ProvisionControls({ detail, onChanged }) {
+  const [busy, setBusy] = useState('')
+  const p = detail.provision || {}
+  const st = detail.status || 'active'
+  async function act(action) {
+    if (action === 'deprovision' && !confirm(`Deprovision ${detail.name}? This removes their VM account (data can be wiped separately).`)) return
+    setBusy(action)
+    try {
+      const res = await fetch(`/api/admin/learner/${detail.slug}/provision`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        alert(`Error: ${d.error || res.status}`)
+      }
+      onChanged?.()
+    } finally {
+      setBusy('')
+    }
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-rule bg-white p-3">
+      <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">VM</span>
+      <span className="text-[12px] text-ink">{detail.workshopUser ? `user: ${detail.workshopUser}` : 'no VM user'}</span>
+      <StatusPill status={st} />
+      {p.queued && <span className="text-[11px] text-muted">⏳ action queued…</span>}
+      {p.status?.state && <span className="text-[11px] text-muted">daemon: {p.status.state}</span>}
+      <div className="ml-auto flex gap-2">
+        {st === 'suspended' ? (
+          <button className={BTN} disabled={!!busy} onClick={() => act('resume')}>Resume</button>
+        ) : (
+          <button className={BTN} disabled={!!busy} onClick={() => act('suspend')}>Suspend</button>
+        )}
+        <button className={`${BTN} !text-red-600 hover:!border-red-400`} disabled={!!busy} onClick={() => act('deprovision')}>
+          Deprovision
+        </button>
+      </div>
+    </div>
+  )
+}
+
+const autoSlug = (n) => n.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30)
+
+// Invite/create a learner → registry entry + access grant + enqueue VM provisioning.
+function InviteForm({ courses, onCreated }) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [slug, setSlug] = useState('')
+  const [slugTouched, setSlugTouched] = useState(false)
+  const [email, setEmail] = useState('')
+  const [courseSlug, setCourseSlug] = useState(courses[0]?.courseSlug || '')
+  const [vmUser, setVmUser] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState(null)
+  const [err, setErr] = useState('')
+
+  async function submit() {
+    setBusy(true)
+    setErr('')
+    setResult(null)
+    try {
+      const course = courses.find((c) => c.courseSlug === courseSlug)
+      const res = await fetch('/api/admin/learners', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name, slug, email, courseSlug, courseTitle: course?.courseTitle, vmUser: vmUser || slug }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || res.status)
+      setResult(d)
+      onCreated?.()
+      setName(''); setSlug(''); setSlugTouched(false); setEmail(''); setVmUser('')
+    } catch (e) {
+      setErr(String(e.message))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!open)
+    return (
+      <button onClick={() => setOpen(true)} className="mb-3 w-full rounded-lg border border-dashed border-rule bg-white px-3 py-2 text-[13px] font-medium text-accent hover:border-accent">
+        + Invite learner
+      </button>
+    )
+  return (
+    <div className="mb-3 rounded-lg border border-rule bg-white p-3">
+      <div className="flex flex-col gap-2">
+        <input value={name} onChange={(e) => { setName(e.target.value); if (!slugTouched) setSlug(autoSlug(e.target.value)) }} placeholder="Name" className="rounded border border-rule px-2 py-1 text-[13px] outline-none focus:border-accent" />
+        <input value={slug} onChange={(e) => { setSlug(e.target.value); setSlugTouched(true) }} placeholder="slug (url)" className="rounded border border-rule px-2 py-1 font-mono text-[13px] outline-none focus:border-accent" />
+        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email (for access grant)" className="rounded border border-rule px-2 py-1 text-[13px] outline-none focus:border-accent" />
+        <select value={courseSlug} onChange={(e) => setCourseSlug(e.target.value)} className="rounded border border-rule px-2 py-1 text-[13px] outline-none focus:border-accent">
+          {courses.map((c) => (
+            <option key={c.courseSlug} value={c.courseSlug}>{c.courseTitle || c.courseSlug}</option>
+          ))}
+        </select>
+        <input value={vmUser} onChange={(e) => setVmUser(e.target.value)} placeholder={`vm user (default: ${slug || 'slug'})`} className="rounded border border-rule px-2 py-1 font-mono text-[13px] outline-none focus:border-accent" />
+        <div className="flex items-center gap-2">
+          <button onClick={submit} disabled={busy} className="rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50">
+            {busy ? 'Inviting…' : 'Invite'}
+          </button>
+          <button onClick={() => setOpen(false)} className="text-[12px] text-muted hover:text-ink">Cancel</button>
+          {err && <span className="text-[12px] text-red-600">{err}</span>}
+        </div>
+        {result && (
+          <div className="rounded-md bg-accent-soft p-2 text-[12px] text-ink">
+            Created <span className="font-mono">/{result.slug}</span> (vm:{result.vmUser}, provisioning). Invite link:{' '}
+            <a href={result.inviteUrl} className="font-mono text-accent underline">{result.inviteUrl}</a>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function LearnerDetail({ slug, onEdited }) {
   const [detail, setDetail] = useState(null)
   const [err, setErr] = useState('')
@@ -207,6 +337,14 @@ function LearnerDetail({ slug, onEdited }) {
           {detail.status && detail.status !== 'active' ? ` · ${detail.status}` : ''}
         </p>
       </div>
+
+      <ProvisionControls
+        detail={detail}
+        onChanged={() => {
+          load()
+          onEdited?.()
+        }}
+      />
 
       <AskChat slug={detail.slug} name={detail.name} />
 
@@ -280,6 +418,16 @@ export default function AdminView() {
         <aside className="md:w-72 shrink-0">
           {err && err !== '403' && <p className="text-[13px] text-red-600">Error: {err}</p>}
           {!learners && !err && <p className="text-[13px] text-muted">Loading roster…</p>}
+          {learners && (
+            <InviteForm
+              courses={[
+                ...new Map(
+                  learners.filter((l) => l.courseSlug).map((l) => [l.courseSlug, { courseSlug: l.courseSlug, courseTitle: l.courseTitle }]),
+                ).values(),
+              ]}
+              onCreated={loadRoster}
+            />
+          )}
           <ul className="flex flex-col gap-1.5">
             {learners?.map((l) => (
               <li key={l.slug}>

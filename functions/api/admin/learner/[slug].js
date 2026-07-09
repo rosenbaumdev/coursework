@@ -5,6 +5,7 @@ import { jsonResponse, errorResponse } from '../../../_shared.js'
 import { getStudent, getCourse, loadRegistry, saveRegistry } from '../../../_students.js'
 import { loadLesson, loadGlance } from '../../../_session.js'
 import { getSessionPack, progressInfo } from '../../../_sessionPacks.js'
+import { provisionState } from '../../../_provision.js'
 
 // POST /api/admin/learner/:slug  { name?, email?, status? } → edit mutable learner fields.
 // Writes a registry override (works for code-seed learners too; the seed still provides the
@@ -87,6 +88,8 @@ export async function onRequestGet({ request, env, params }) {
     courseTitle: course?.title || null,
     workshopUser: student.workshop?.user || null,
     status: student.status || 'active',
+    fromRegistry: Boolean(student.fromRegistry),
+    provision: await provisionState(env, slug),
     days,
   })
 }
