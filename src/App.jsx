@@ -11,6 +11,7 @@ import ContentCanvas from './components/session/ContentCanvas.jsx'
 import SplitPane from './components/session/SplitPane.jsx'
 import { describeCanvas } from './session/describeCanvas.js'
 import Splash from './components/Splash.jsx'
+import AdminView from './components/AdminView.jsx'
 import { useTrackerData } from './hooks/useTrackerData.js'
 import { useAssets } from './hooks/useAssets.js'
 import { buildDayTree, parseCourseWork } from './data/parseCourseWork.js'
@@ -356,6 +357,7 @@ export default function App() {
       <Route path="/session" element={<SessionView />} />
       <Route path="/termtest" element={<TermTest />} />
       <Route path="/workshop" element={<WorkshopTest />} />
+      <Route path="/admin" element={<AdminView />} />
       <Route path="/:studentSlug/interview" element={<InterviewView />} />
       <Route path="/:studentSlug/session" element={<SessionView />} />
       <Route

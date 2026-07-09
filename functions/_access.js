@@ -150,3 +150,14 @@ export async function canAccess(request, env, slug) {
 export async function isAdmin(request, env) {
   return (await getIdentity(request, env)).isAdmin
 }
+
+// Self-gate for admin endpoints. These MUST guard themselves (not rely on the middleware
+// default-deny, which is dark behind AUTHZ_ENFORCE) — otherwise anyone past CF Access could
+// read every learner's data. Returns a 403 Response to short-circuit, or null if admin.
+export async function requireAdmin(request, env) {
+  if ((await getIdentity(request, env)).isAdmin) return null
+  return new Response(JSON.stringify({ error: 'Admin only' }), {
+    status: 403,
+    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+  })
+}
