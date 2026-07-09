@@ -27,9 +27,23 @@ Last updated: 2026-07-08 (Phase I shipped)
 - Added WORK LANDED + ERROR bullets to the proactive prompt block; added the TERMINAL SITUATION envelope block.
 - Built, deployed to prod, smoke-tested `/glance` on the pages.dev URL (real `npm ERR!` → `{salient:true,kind:error,oneLine:...}`). Cleaned the test's glance object from R2.
 
+## Phase II progress (2026-07-09)
+- II-1 authz foundation: DONE + PROVEN end-to-end. Identity from VERIFIED Access JWT
+  (Cf-Access-Authenticated-User-Email is NOT forwarded to Pages; cf-access-jwt-assertion is).
+  `_access.js` verifies RS256 vs team JWKS (flat-heart-d5af.cloudflareaccess.com) + aud
+  (d83de7fb…) + iss + exp. `BOOTSTRAP_ADMINS`=jonathan.rosenbaum@gmail.com (Pages secret).
+  `/api/me` returns {email,isAdmin,courses}; middleware default-deny gated behind
+  `AUTHZ_ENFORCE` (still DARK/unset). Proven: /api/me on real Access → isAdmin:true, sig verified.
+- II-2 registry overlay: DONE + PROVEN. R2 admin/registry.json overlaid on code seeds via
+  `primeStudents()` in `_middleware` (getStudent stays sync). Tested a registry-only slug
+  resolved with NO redeploy; code seeds intact. Client unknown-slug resolution deferred to II-3/4.
+- NEXT: II-3 admin console (read-first: roster + per-learner progress/transcripts +
+  "ask AI about learner"; then invite/create-learner which writes registry via saveRegistry).
+- ENFORCEMENT FLIP (later, coordinated): learner access will come from registry email→slug;
+  then set `AUTHZ_ENFORCE=1`, verify fail-closed, THEN Jonathan widens the CF Access policy.
+
 ## In Progress
-- (none) — Phase I deployed + verified. Uncommitted: the whole workshop-isolation + Phase I tree
-  is still uncommitted on `main` (see gitStatus). NEXT ACTION should be to commit it.
+- (none) — Phase I + all UI fixes deployed. Phase II-1/II-2 shipped (authz dark, registry overlay).
 
 ## Next Session Starts Here
 - COMMIT the Phase I + workshop-isolation work (new `workshop/` dir, `functions/_workshopToken.js`,
