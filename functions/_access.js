@@ -95,6 +95,11 @@ async function verifyAccessJwt(token, env) {
 }
 
 export async function getVerifiedEmail(request, env) {
+  // LOCAL DEV ONLY: .dev.vars supplies DEV_ADMIN_EMAIL so /admin works at localhost:8788
+  // without a real Cloudflare Access JWT. .dev.vars is gitignored and NOT deployed
+  // (`wrangler pages deploy` ignores it), so this can never fire in production.
+  if (env?.DEV_ADMIN_EMAIL) return String(env.DEV_ADMIN_EMAIL).trim().toLowerCase()
+
   const token = getAccessToken(request)
   if (!token) return ''
   const payload = await verifyAccessJwt(token, env)

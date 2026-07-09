@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:full": "wrangler pages dev --ip 0.0.0.0 --port 8788 --proxy 5173 --r2 STORAGE=coursework-assets --r2 INTERVIEW=coursework-interview -- vite",
+    "dev:full": "vite build --watch & wrangler pages dev dist --ip 0.0.0.0 --port 8788 --r2 STORAGE=coursework-assets --r2 INTERVIEW=coursework-interview",
     "build": "vite build",
     "preview": "wrangler pages dev dist --ip 0.0.0.0 --port 8788 --r2 STORAGE=coursework-assets --r2 INTERVIEW=coursework-interview",
     "deploy": "npm run build && wrangler pages deploy dist --project-name coursework --branch main"
