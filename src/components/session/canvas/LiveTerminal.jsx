@@ -29,6 +29,30 @@ const WORKING_RE = /esc to (interrupt|cancel)/i
 const ERRORISH_RE = /\b(error|failed|failure|exception|traceback|not found|denied|cannot|fatal)\b/i
 const SETTLE_MS = 3000
 
+// Terminal font sizing. On a narrow viewport (a phone) 13px shows almost no columns
+// and wraps every line; auto-shrink so more fits. A learner's explicit +/- choice is
+// remembered in localStorage and turns auto-sizing OFF (their number wins from then on).
+const FONT_KEY = 'coursework.terminalFontSize'
+const FONT_MIN = 8
+const FONT_MAX = 20
+const FONT_DEFAULT = 13
+function autoFont(width) {
+  if (!width) return FONT_DEFAULT
+  if (width < 420) return 10
+  if (width < 640) return 11
+  return FONT_DEFAULT
+}
+// The arrow / control sequences an on-screen key sends to the PTY.
+const KEY_SEQ = {
+  esc: '\x1b',
+  tab: '\t',
+  enter: '\r',
+  up: '\x1b[A',
+  down: '\x1b[B',
+  right: '\x1b[C',
+  left: '\x1b[D',
+}
+
 export default function LiveTerminal({ url, token, getToken, onStatus, onLiveState, onEvent }) {
   const hostRef = useRef(null)
   // Stable ref so onEvent identity changes never re-run the WS effect (which would drop
@@ -40,6 +64,40 @@ export default function LiveTerminal({ url, token, getToken, onStatus, onLiveSta
   const getTokenRef = useRef(getToken)
   getTokenRef.current = getToken
   const [note, setNote] = useState('connecting…') // visible overlay until first bytes arrive
+
+  // --- Mobile controls: font sizing + a key pad for keys the iOS keyboard lacks. ---
+  // Live handles into the effect so the render's buttons can drive the terminal/socket:
+  const termRef = useRef(null)     // the xterm Terminal
+  const fitRef = useRef(null)      // FitAddon (re-fit after a font change)
+  const wsSendRef = useRef(null)   // send raw bytes over the CURRENT socket
+  const resizeRef = useRef(null)   // tell the PTY the new cols/rows
+  const ctrlArmedRef = useRef(false) // next typed letter → Ctrl-<letter>
+  const disarmCtrlRef = useRef(null) // effect calls this to clear the armed UI state
+  const [fontSize, setFontSize] = useState(FONT_DEFAULT)
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [ctrlArmed, setCtrlArmed] = useState(false)
+  ctrlArmedRef.current = ctrlArmed
+  disarmCtrlRef.current = () => setCtrlArmed(false)
+
+  function applyFont(size) {
+    const s = Math.max(FONT_MIN, Math.min(FONT_MAX, size))
+    setFontSize(s)
+    try { localStorage.setItem(FONT_KEY, String(s)) } catch {} // an explicit choice = disable auto-sizing
+    const term = termRef.current
+    if (term) {
+      term.options.fontSize = s
+      try { fitRef.current?.fit() } catch {}
+      resizeRef.current?.()
+    }
+  }
+
+  // Send a key/sequence to the PTY, keeping the terminal focused (buttons use
+  // onPointerDown+preventDefault so tapping them never blurs xterm's textarea —
+  // that's what keeps the iOS keyboard open for a Ctrl-<letter> combo).
+  function sendKey(bytes) {
+    wsSendRef.current?.(bytes)
+    termRef.current?.focus()
+  }
 
   useEffect(() => {
     if (!url) { setNote('no terminal URL'); return }
@@ -85,15 +143,23 @@ export default function LiveTerminal({ url, token, getToken, onStatus, onLiveSta
       reportTimer = setTimeout(() => { reportTimer = null; report() }, 500)
     }
 
+    // Initial font: a remembered explicit choice wins; otherwise size to the viewport.
+    let stored = 0
+    try { stored = Number(localStorage.getItem(FONT_KEY)) || 0 } catch {}
+    const initialFont = stored || autoFont(hostRef.current?.clientWidth || 0)
+    setFontSize(initialFont)
+
     const term = new Terminal({
       cursorBlink: true,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      fontSize: 13,
+      fontSize: initialFont,
       theme: { background: '#111111', foreground: '#e5e7eb', cursor: '#28c840', selectionBackground: '#2b4a63' },
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(hostRef.current)
+    termRef.current = term
+    fitRef.current = fit
 
     // Clipboard (#7/#8): xterm forwards keystrokes to the PTY, so ⌘C/Ctrl-C would hit
     // the shell (SIGINT) and its selection isn't a real DOM selection (native copy grabs
@@ -149,6 +215,10 @@ export default function LiveTerminal({ url, token, getToken, onStatus, onLiveSta
     const sendResize = () => {
       try { ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows })) } catch {}
     }
+    resizeRef.current = sendResize
+    // The key pad sends through here; the closure over `ws` (a let, reassigned on each
+    // reconnect) always targets the live socket.
+    wsSendRef.current = (s) => { try { ws?.readyState === WebSocket.OPEN && ws.send(s) } catch {} }
 
     async function connect() {
       onStatus?.('connecting')
@@ -197,7 +267,18 @@ export default function LiveTerminal({ url, token, getToken, onStatus, onLiveSta
     // escape sequences (arrows/fn keys) are ignored so they don't corrupt the buffer.
     let lineBuf = ''
     const dataSub = term.onData((d) => {
-      try { ws?.readyState === WebSocket.OPEN && ws.send(d) } catch {}
+      // Ctrl pad armed: turn the next single typed letter into Ctrl-<letter> (so a phone
+      // keyboard can send Ctrl-C etc.), then disarm. Anything else passes through.
+      let payload = d
+      if (ctrlArmedRef.current) {
+        if (d.length === 1) {
+          const c = d.toLowerCase().charCodeAt(0)
+          if (c >= 97 && c <= 122) payload = String.fromCharCode(c & 0x1f)
+        }
+        ctrlArmedRef.current = false
+        disarmCtrlRef.current?.()
+      }
+      try { ws?.readyState === WebSocket.OPEN && ws.send(payload) } catch {}
       const emit = onEventRef.current
       if (typeof emit !== 'function') return
       const paste = d.match(/\x1b\[200~([\s\S]*?)\x1b\[201~/)
@@ -216,7 +297,16 @@ export default function LiveTerminal({ url, token, getToken, onStatus, onLiveSta
       }
     })
 
-    const ro = new ResizeObserver(() => { safeFit(); sendResize() })
+    const ro = new ResizeObserver(() => {
+      // Responsive auto-sizing — only while the learner hasn't set an explicit size.
+      let hasChoice = false
+      try { hasChoice = Boolean(localStorage.getItem(FONT_KEY)) } catch {}
+      if (!hasChoice) {
+        const f = autoFont(hostRef.current?.clientWidth || 0)
+        if (f && term.options.fontSize !== f) { term.options.fontSize = f; setFontSize(f) }
+      }
+      safeFit(); sendResize()
+    })
     ro.observe(hostRef.current)
 
     // Let the marquee "Point" tool read real text out of this terminal (xterm paints to
@@ -237,8 +327,19 @@ export default function LiveTerminal({ url, token, getToken, onStatus, onLiveSta
       dataSub.dispose()
       try { ws && ws.close() } catch {}
       term.dispose()
+      termRef.current = null
+      fitRef.current = null
+      wsSendRef.current = null
+      resizeRef.current = null
     }
   }, [url, token, onStatus, onLiveState])
+
+  // Buttons use onPointerDown+preventDefault so a tap never blurs xterm's textarea —
+  // that keeps the iOS keyboard open (needed for arming Ctrl then typing a letter).
+  const hold = (fn) => ({
+    onPointerDown: (e) => { e.preventDefault(); fn() },
+  })
+  const keyCls = 'min-w-[2.1rem] rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-center font-mono text-[13px] text-[#e5e7eb] active:bg-white/20'
 
   return (
     <div className="relative h-full w-full">
@@ -248,6 +349,52 @@ export default function LiveTerminal({ url, token, getToken, onStatus, onLiveSta
           <span className="font-mono text-[12px] text-[#9ca3af]">{note}</span>
         </div>
       )}
+
+      {/* Controls panel — text size + keys the on-screen keyboard lacks. */}
+      {panelOpen && (
+        <div className="absolute bottom-14 right-2 z-30 w-[15rem] rounded-xl border border-white/15 bg-black/80 p-3 backdrop-blur-md shadow-xl">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#9ca3af]">Text size</span>
+            <div className="flex items-center gap-2">
+              <button {...hold(() => applyFont(fontSize - 1))} className={keyCls} aria-label="Smaller text">A−</button>
+              <span className="w-8 text-center font-mono text-[12px] text-[#e5e7eb]">{fontSize}</span>
+              <button {...hold(() => applyFont(fontSize + 1))} className={keyCls} aria-label="Larger text">A+</button>
+            </div>
+          </div>
+          <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-[#9ca3af]">Keys</div>
+          <div className="grid grid-cols-4 gap-1.5">
+            <button {...hold(() => sendKey(KEY_SEQ.esc))} className={keyCls}>esc</button>
+            <button {...hold(() => sendKey(KEY_SEQ.tab))} className={keyCls}>tab</button>
+            <button
+              {...hold(() => setCtrlArmed((v) => !v))}
+              className={`${keyCls} ${ctrlArmed ? '!bg-[#28c840] !text-black !border-[#28c840]' : ''}`}
+            >
+              ctrl
+            </button>
+            <button {...hold(() => sendKey(KEY_SEQ.enter))} className={keyCls}>⏎</button>
+            <button {...hold(() => sendKey(KEY_SEQ.left))} className={keyCls}>←</button>
+            <button {...hold(() => sendKey(KEY_SEQ.up))} className={keyCls}>↑</button>
+            <button {...hold(() => sendKey(KEY_SEQ.down))} className={keyCls}>↓</button>
+            <button {...hold(() => sendKey(KEY_SEQ.right))} className={keyCls}>→</button>
+          </div>
+          {ctrlArmed && (
+            <div className="mt-2 font-mono text-[10px] leading-tight text-[#28c840]">
+              Ctrl armed — tap a letter to send Ctrl-&lt;letter&gt; (e.g. C to interrupt).
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Floating, semi-transparent toggle — bottom-right of the terminal. */}
+      <button
+        {...hold(() => setPanelOpen((v) => !v))}
+        aria-label="Terminal controls"
+        className={`absolute bottom-2 right-2 z-30 grid h-9 w-9 place-items-center rounded-full border border-white/15 text-[15px] backdrop-blur-md transition ${
+          panelOpen ? 'bg-white/25 text-white' : 'bg-white/10 text-[#e5e7eb] hover:bg-white/20'
+        }`}
+      >
+        ⌨
+      </button>
     </div>
   )
 }
