@@ -28,7 +28,10 @@ II-1 — Authorization foundation (dark first):
 - [ ] LATER (coordinated, after II-2): learner access comes from the registry (email→slug), so no hand-maintained grants for existing learners. Then flip `AUTHZ_ENFORCE=1`, verify fail-closed (ungranted email → 403), THEN Jonathan widens the CF Access policy. pages.dev fails closed by design (no Access → anon).
 II-2 — Runtime learner registry: [x] SERVER overlay done + PROVEN (2026-07-09) — `admin/registry.json` in INTERVIEW, `primeStudents()` in `_middleware` refreshes a merged map (getStudent stays sync), code seeds win on clash, `loadRegistry`/`saveRegistry` for admin. Tested: a registry-only slug resolved with NO redeploy; code seeds intact. [ ] CLIENT unknown-slug resolution (App.jsx StudentRoute → `api/student` or fold into `me`) — deferred until the first real invited learner exists (build with II-3/II-4).
 II-3 — Admin console (read-first): `/admin` route + `AdminView.jsx` + `functions/api/admin/*` — roster, per-learner progress + transcripts, "ask AI about this learner"; then invite/create-learner
-II-4 — Pull provisioning: `admin/provision-queue/*` in R2 + `workshop/provision-daemon.mjs` (root systemd) → runs `provision-user.sh`, writes `admin/provision-status/*`; invite flow end-to-end
+II-4 — Pull provisioning (CW triggers, droplet root daemon executes — NO terminal, NO inbound privileged endpoint):
+  - `admin/provision-queue/<slug>.json` in R2 (`{action, user, …}`) + `workshop/provision-daemon.mjs` (root systemd) polls it, validates input (username regex, port alloc), runs `provision-user.sh`, writes `admin/provision-status/<slug>.json`
+  - actions: `create` (onboard), `suspend` (stop services, KEEP data/account), `resume`, `deprovision` (remove account, optional data wipe) — all admin-console buttons → enqueue → daemon
+  - invite flow end-to-end (registry entry → grant → enqueue create → status → invite link)
 II-5 — Session continuity + concurrency lease (cap 3): `admin/leases.json`, acquire in `start.js`, renew in glance/message, release on signoff + TTL; warm/reap; `claude --resume` recovery
 
 **Phase III** — user settings (Director persona, BYOK key, profile, workspace reset, **theme choices**, a11y). Detail in the plan file.
