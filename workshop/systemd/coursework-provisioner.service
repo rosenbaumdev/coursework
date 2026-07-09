@@ -1,0 +1,20 @@
+# Provisioning daemon (Phase II-4b). Runs as ROOT — it creates/removes unix accounts and
+# toggles the per-user services. Polls the R2 queue the app writes and acts on it. This is
+# the ONLY root component; the per-user bridges/viewers never elevate.
+#
+#   systemctl enable --now coursework-provisioner
+[Unit]
+Description=Coursework provisioning daemon (R2 queue -> provision-user.sh)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=root
+EnvironmentFile=/etc/coursework/provisioner.env
+WorkingDirectory=/opt/coursework
+ExecStart=/usr/bin/node /opt/coursework/provision-daemon.mjs
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

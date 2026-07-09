@@ -103,6 +103,48 @@ ensure the shared `WORKSHOP_SIGNING_SECRET` exists once on both sides: droplet
 `/etc/coursework/signing.env` (install step 5) **and** the `WORKSHOP_SIGNING_SECRET` Pages
 secret, set to the same value.
 
+## Provisioning daemon (Phase II-4 — invite a learner with NO terminal)
+
+The admin console's "Invite learner" / Suspend / Deprovision buttons don't touch the VM
+directly. They write a request to R2 (`admin/provision-queue/<slug>.json`); this root
+daemon polls that queue and runs `provision-user.sh` (or `systemctl`/`userdel`), then writes
+`admin/provision-status/<slug>.json`. PULL model — no inbound privileged endpoint on the VM.
+
+**One-time setup (root on the droplet):**
+
+```bash
+# 1. code + deps at /opt/coursework
+cp workshop/provision-daemon.mjs /opt/coursework/
+cp workshop/provision-user.sh   /opt/coursework/          # the daemon calls this
+chmod +x /opt/coursework/provision-user.sh
+cd /opt/coursework && npm init -y >/dev/null 2>&1 && npm i aws4fetch
+
+# 2. R2 credentials. In the Cloudflare dashboard: R2 → Manage API Tokens → Create,
+#    scoped to the `coursework-interview` bucket, "Object Read & Write". Note the
+#    Access Key ID, Secret, and your account id.
+cat >/etc/coursework/provisioner.env <<'ENV'
+R2_ACCOUNT_ID=<account-id>
+R2_ACCESS_KEY_ID=<access-key-id>
+R2_SECRET_ACCESS_KEY=<secret>
+R2_BUCKET=coursework-interview
+PROVISION_SCRIPT=/opt/coursework/provision-user.sh
+AUTH_SOURCE=coder
+POLL_MS=5000
+ENV
+chmod 600 /etc/coursework/provisioner.env
+
+# 3. systemd
+cp workshop/systemd/coursework-provisioner.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now coursework-provisioner
+journalctl -u coursework-provisioner -f     # watch it pick up invites
+```
+
+The daemon allocates free ports (app 8081–8099, bridge 7691–7699) for `create`, so the app
+doesn't manage ports. Actions: `create`, `suspend` (stop+disable, keep data), `resume`,
+`deprovision` (`userdel`, `-r` if the request set `wipe`). On error it records the message in
+the status object and drops the queue item — re-trigger from the admin UI.
+
 ## App side (already wired in this repo)
 
 - `functions/_students.js` / `src/students.js`: a student gains
