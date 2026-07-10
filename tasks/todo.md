@@ -1,5 +1,36 @@
 # Status (rolling)
 
+## 🎯 Day 2: force real, self-prompted improvements (2026-07-09) — IN PROGRESS
+Goal (all noob learners; pack keyed by course so one edit hits everyone): Day 2 must push learners to
+become CREATIVE and to PROMPT Claude Code themselves, not copy-paste the Director's prompts.
+Confirmed design (w/ Jonathan):
+- BAR: ship ≥3 improvements they drive, ≥2 FUNDAMENTAL (change how it WORKS, not just looks); 5 = "going
+  for it", never a trap. Protect the Day-1 "leave grinning not grinding" ethos.
+- TIERS: fundamental = non-rect holes, hills/valleys, physics, moving obstacles, variable hole count,
+  tunnels. Juice = ball color, sound, start/end screens, win/lose fx, transitions, animations. Hard
+  stretch (bonus, not required) = multiplayer, hole designer, cross-session saves.
+- AUTHORSHIP = graduated resistance (NOT a hard wall): Director may hand a copyable/fenced prompt for the
+  FIRST BUILD + ONE first improvement (a model). After those two, DEFAULT to NOT emitting a copyable
+  prompt block — coach + offer wording inline to steal; only produce one if explicitly asked, resistance
+  GROWS as the session goes on. Reuse the existing LEARNER'S OWN PROMPT proactive coaching.
+- NOVELTY EXCEPTION: help ebbs/flows with novelty, not the clock — if the learner reaches for something
+  genuinely hard/new (cross-session saves, DB, multiplayer, cross-user), help ramps back UP incl. terminal
+  setup. Cross-DAY escalation is out of scope (future packs).
+- MENU → chips (prod only after self-discovery stalls); no new canvas figure (keep focus on live workshop).
+
+Changes to functions/_sessionPacks.js ZACHARY_DAY_2:
+- [ ] objectivesMd build section: build.first (R) + build.imp1/imp2/imp3 (R, ≥2 fundamental across them,
+      evidence = learner's OWN prompt) + build.imp4/imp5 (B, imp5 may be a hard stretch). Replaces
+      build.mine/juice/hole2. Update ship.replayable/wrap.next wording.
+- [ ] canvasDefaults: remap build.mine/juice/hole2 → build.imp1..5 (all → workshop.build).
+- [ ] masterPrompt MOVEMENT 4: rewrite FRAME THE MANDATE (make-it-yours) + STEP 5 (loop → improvements
+      mandate + self-discovery→chips + looks-vs-works + hand-off/resistance + novelty exception) + the two
+      "HOW TO WORK" lines (reconcile "keep bar low" with the new 3-improvement bar).
+- [ ] budget 70/75 → ~100/100 (self-authoring is slower).
+- [ ] Verify: validateSessionPack passes, objectives parse, ids match canvasDefaults; build.
+NOTE: new prose uses neutral "the learner/they" (legacy pack prose still he/him — neutralize at per-learner
+authoring). Content-only change (not a name) → applies to all noob learners automatically.
+
 ## 🔒 Enforce per-learner isolation (AUTHZ flip, 2026-07-09) — DEPLOYED + VERIFIED LIVE
 DEPLOYED (2 deploys: enforcement, then a caching-bypass fix). VERIFIED LIVE on the no-Access pages.dev
 alias: /<slug>/api/* + /<slug>/files/* + /api/admin/* → 401 for anon (fail-closed, body {"error":"Not

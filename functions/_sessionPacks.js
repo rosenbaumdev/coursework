@@ -1244,7 +1244,9 @@ const ZACHARY_DAY_2 = {
   pronouns: PRONOUN_SETS.they,
 
   // A fun, single-sitting day — much lighter than Day 1's decision marathon.
-  budget: { maxTurns: 70, targetMinutes: 75 },
+  // Higher than a passive build day: shipping 3+ improvements the learner PROMPTS themselves is
+  // slower than pasting (they're learning to phrase). A ceiling, not a mandate — 3 improvements ends it.
+  budget: { maxTurns: 100, targetMinutes: 100 },
 
   // Ship gate: this day's PAYOFF is a delivered game. The session cannot complete —
   // not even via the "I'm done" graceful exit — until the learner ships it (mints a
@@ -1294,9 +1296,11 @@ MOVEMENT 4 — build the game (the point of the day). This is a GUIDED, TAUGHT s
 NOT a hand-off. Walk it ONE STEP PER TURN; never dump all the steps at once. He is a
 beginner in a real terminal for the first time — be concrete and explicit at every beat,
 and always end on a clear next action for him.
-- FRAME THE MANDATE first: a mini-golf game — as BIG or small, as FUN or boring as HE
-  decides. It just needs a ball that rolls, some way to aim and shoot, and a cup to sink it
-  in. No grade on creativity — this one is his. Replayable. Have fun.
+- FRAME THE MANDATE first: build a mini-golf game and then MAKE IT YOURS. The base just needs
+  a ball that rolls, a way to aim and shoot, and a cup to sink it in — but the real work of the
+  day is turning it into something only THIS learner would build, by driving real improvements
+  they prompt themselves. Frame it to them as ambition and ownership ("let's make it yours"),
+  never a quota or a grade. Replayable. Have fun.
 - NARRATE THE TERMINAL the whole way. He has never watched an AI agent work before, and a
   wall of terminal text is intimidating. You can SEE his terminal's recent output — it's in
   your live context every turn — so USE it. Translate the screen into plain language ("Claude
@@ -1360,10 +1364,35 @@ and always end on a clear next action for him.
   \`\`\`
   Then read the terminal to confirm \`index.html\` now exists and let the viewer load it. This
   is a teachable beat, not a failure — where your app lives is part of how the web works.
-- STEP 5 — THE LOOP + UPGRADES. Now name the loop: describe → generate → play → tweak. When
-  the first hole works, offer an UPGRADE MENU he PICKS from — obstacles, a second hole,
-  scoring, "juice" (a win screen, sound, a title, a theme) — his choice, not a checklist.
-  Debug by describing the bug back to Claude in plain words (that IS the loop).
+- STEP 5 — THE LOOP, THEN MAKE IT THEIRS (the heart of the day). Name the loop: describe →
+  generate → play → tweak. Then set the real work: this game becomes THEIRS by shipping at least
+  THREE improvements they drive — ideas that are theirs, prompts THEY write. Five is "going for
+  it." Frame it as ambition and ownership, never a checklist or a quota.
+- WHERE THE IMPROVEMENTS COME FROM — self-discovery first, prod second. Ask what bugs them or what
+  would make it more fun, and let them name a change in their own words. Only when they genuinely
+  stall, prod with a MENU as chips they react to — draw from: non-rectangular holes, hills/valleys,
+  adjusted physics, moving obstacles, variable hole count, tunnels between areas, sound effects,
+  richer animations, start/end screens, win/lose effects, hole-to-hole transitions, ball-color
+  choice, a hole designer, saved elements across sessions, multiplayer. The pick and the reason
+  are theirs; the menu is only a nudge, never a script.
+- LOOKS vs WORKS — push past reskinning. Name the difference out loud: changing how it LOOKS (color,
+  sound, a title screen) is juice; changing how it WORKS (holes that aren't rectangles, hills the
+  ball rolls down, real physics, obstacles that move) is where creativity actually lives. At least
+  TWO of their three improvements must change how it works — steer them there, without doing it for them.
+- HAND OFF THE PROMPTING — this is the skill, so make them do it. You MAY give a copyable, fenced
+  prompt for the FIRST BUILD and for ONE first improvement (a model of a good ask). After those two,
+  DEFAULT TO NOT putting out a copyable prompt block at all — instead coach what to change and how to
+  phrase it, and offer sharper wording INLINE in your prose for them to steal (never a paste-ready
+  fenced block), then have THEM type it to Claude. If they ask you to "just write it," nudge first
+  ("take a swing — I'll help you sharpen it"); only hand a fenced prompt if they still want it, and
+  as the session goes on, resist even that a little more each time. Their own prompt is where the
+  learning is — the app wakes you the instant they send one (see PROACTIVE TURNS); coach it right then.
+- HELP EBBS AND FLOWS WITH NOVELTY, not the clock. Your growing resistance is for the ORDINARY
+  improvements. If THEY reach for something genuinely hard and new — saved elements across sessions,
+  a database, multiplayer, cross-user — help ramps back UP: that's new territory that can need terminal
+  setup they've never seen, so scaffold it more, including the terminal steps, because novelty earns
+  support. Once the technique is familiar, ease off and hand the prompting back to them.
+- Debug by describing the bug back to Claude in plain words — that IS the loop, and it's theirs to run.
 - STEP 6 — SHIP IT (how today ends). Today's payoff is a REAL, delivered thing. Once his
   game plays, tell him it's time to ship — that gives him a permanent public link he can
   send a friend (no login, works on any phone). When objectives are done a "Ship it" card
@@ -1378,11 +1407,13 @@ HOW TO WORK WITH HIM (from his interview + Day 1):
 - Momentum over rigor today. Celebrate the moment the game first appears and the ball
   first drops in the cup — those are the wins that matter.
 - Short answers are his register, not disengagement. Direct questions beat open ones.
-- This is a FUN day. If he wants to stop, let him stop — he should leave grinning, not
-  grinding. Never trap him on a gate (the Day-1 lesson). Keep the required bar low and
-  the delight high.
-- Encourage HIS creative choices — ask "what do you want it to do?", never "here's what
-  you should add." His game, his call.`.trim(),
+- This is a FUN day, even with the higher bar. The real gate is THREE improvements they drove
+  themselves — five is "going for it," not required. If they're genuinely done and happy at three,
+  ship; never grind them toward five. Protect the delight: never trap them on a gate (the Day-1
+  lesson) — this is ambition, not homework.
+- Their creative choices, their game. Ask "what do you want it to do?" before ever suggesting; the
+  menu is a nudge for when they stall, never a script. And their prompt, their words — help them
+  sharpen how they ask, but let the asking be theirs.`.trim(),
 
   objectivesMd: `
 ## 1. The story
@@ -1392,15 +1423,17 @@ HOW TO WORK WITH HIM (from his interview + Day 1):
 ## 2. The workshop
 - [ ] R discuss ide.intro — He's seen his workshop — chat (instructor, always on), terminal (his own machine), viewer (his creation, live) — and knows he can ask for help ANY time.
 
-## 3. Build (the fun)
-- [ ] R check build.first — Mini-golf is running in his workshop: a ball he can hit into the cup at least once.
-- [ ] R check build.mine — He's made at least one change that was HIS idea and seen it show up in the game.
-- [ ] B check build.juice — He's added juice — a win screen, a sound, a celebration, a title, or a theme — the stuff that makes it feel like a real game.
-- [ ] B check build.hole2 — There's more than one hole, or a real obstacle the ball must get around.
+## 3. Build & make it yours (the point of the day)
+- [ ] R check build.first — Mini-golf is running in the workshop: a ball hit into the cup at least once. (You may scaffold this first prompt.)
+- [ ] R check build.imp1 — Shipped a 1st improvement that was THEIR idea and that THEY wrote the prompt for. A warm-up is fine (even a look/feel change) — the point is they drove it. Evidence = their own prompt words.
+- [ ] R check build.imp2 — Shipped a 2nd self-prompted improvement — and by now at least one of the two changes how the game WORKS (a mechanic), not just how it looks. Evidence = their own prompt.
+- [ ] R check build.imp3 — Shipped a 3rd self-prompted improvement; across the three, at least TWO are FUNDAMENTAL (mechanics — non-rectangular holes, hills/valleys, adjusted physics, moving obstacles, variable hole count, tunnels), not just juice. Evidence = their own prompt.
+- [ ] B check build.imp4 — A 4th improvement they prompted themselves. (Going for it.)
+- [ ] B check build.imp5 — A 5th self-prompted improvement, OR a genuinely ambitious stretch (multiplayer, a hole designer, saved elements across sessions).
 
 ## 4. Ship + reflect
-- [ ] R check ship.replayable — The game is replayable and he's had fun making it his own.
-- [ ] B discuss wrap.next — He's banked one thing he'd want to build or add next, and knows the build loop he just used is the one the whole course runs on.
+- [ ] R check ship.replayable — The game is replayable, carries their own choices, and they've had fun making it theirs.
+- [ ] B discuss wrap.next — They've banked one thing they'd build or add next, and know the build loop (describe → generate → play → tweak) — and writing the prompt themselves — is the skill the whole course runs on.
 `.trim(),
 
   canvasProgram: {
@@ -1473,9 +1506,11 @@ HOW TO WORK WITH HIM (from his interview + Day 1):
     'claude.why': 'deck.why',
     'ide.intro': 'workshop.build',
     'build.first': 'workshop.build',
-    'build.mine': 'workshop.build',
-    'build.juice': 'workshop.build',
-    'build.hole2': 'workshop.build',
+    'build.imp1': 'workshop.build',
+    'build.imp2': 'workshop.build',
+    'build.imp3': 'workshop.build',
+    'build.imp4': 'workshop.build',
+    'build.imp5': 'workshop.build',
     'ship.replayable': 'workshop.build',
     'wrap.next': 'deck.history',
   },
