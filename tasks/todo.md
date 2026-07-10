@@ -1,6 +1,12 @@
 # Status (rolling)
 
-## 🎯 Day 2: force real, self-prompted improvements (2026-07-09) — IN PROGRESS
+## 🎯 Day 2: force real, self-prompted improvements (2026-07-09) — DONE, COMMITTED + DEPLOYED
+COMMITTED (e466706 on branch learner-naming-and-isolation) + DEPLOYED to prod (607fbfc4, branch main).
+Live for all noob learners' next Day-2 start. VERIFIED: 17/17 unit assertions (objectives parse, ids match
+canvasDefaults, canvas targets resolve, budget 100/100, masterPrompt carries all new rules, no literal
+Zachary) + Functions bundle deployed. NOT eyeball-tested in a live authed Day-2 run (needs a real learner
+JWT; can't drive headless, esp. now that /<slug>/api/session is isolation-gated) — the Director actually
+enforcing the improvements/resistance is wired + unit-verified but not observed end-to-end.
 Goal (all noob learners; pack keyed by course so one edit hits everyone): Day 2 must push learners to
 become CREATIVE and to PROMPT Claude Code themselves, not copy-paste the Director's prompts.
 Confirmed design (w/ Jonathan):
