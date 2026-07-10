@@ -4,11 +4,11 @@ import Splash from './Splash.jsx'
 import ProgressHeader from './chat/ProgressHeader.jsx'
 import ChatMessages from './chat/ChatMessages.jsx'
 import ChatInput from './chat/ChatInput.jsx'
-import { getStudent } from '../students.js'
+import { useStudent } from '../hooks/useStudent.js'
 
 export default function InterviewView() {
   const { studentSlug } = useParams()
-  const student = getStudent(studentSlug)
+  const { student, loading: studentLoading } = useStudent(studentSlug)
   const course = student?.courses[0]
 
   const [messages, setMessages] = useState([])
@@ -135,6 +135,7 @@ export default function InterviewView() {
     })
   }
 
+  if (studentLoading) return null // resolving a registry learner from the server
   if (!student || !course) return <Splash />
 
   if (phase === 'already') {

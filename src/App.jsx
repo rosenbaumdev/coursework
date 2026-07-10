@@ -14,8 +14,8 @@ import Splash from './components/Splash.jsx'
 import AdminView from './components/AdminView.jsx'
 import { useTrackerData } from './hooks/useTrackerData.js'
 import { useAssets } from './hooks/useAssets.js'
+import { useStudent } from './hooks/useStudent.js'
 import { buildDayTree, parseCourseWork } from './data/parseCourseWork.js'
-import { getStudent } from './students.js'
 
 function useCoursework(mdFile) {
   const [days, setDays] = useState([])
@@ -335,17 +335,18 @@ function FilesViewRoute({ student, course }) {
 function StudentRoute({ render }) {
   const { studentSlug } = useParams()
   const location = useLocation()
-  const student = getStudent(studentSlug)
+  const { student, loading } = useStudent(studentSlug)
 
+  // Set browser tab title from the student's course
+  useEffect(() => {
+    if (student) document.title = `${student.name} — ${student.courses[0].title}`
+  }, [student])
+
+  if (loading) return null // resolving a registry learner from the server — brief blank
   if (!student) return <Splash />
 
   const course = student.courses[0]
   const isDAD = location.pathname.includes('/dad')
-
-  // Set browser tab title from the student's course
-  useEffect(() => {
-    document.title = `${student.name} — ${course.title}`
-  }, [student.name, course.title])
 
   return render({ student: { ...student, slug: studentSlug }, course, isDAD })
 }

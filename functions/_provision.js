@@ -51,3 +51,26 @@ export async function provisionState(env, slug) {
   const [queued, status] = await Promise.all([isQueued(env, slug), loadProvisionStatus(env, slug)])
   return { queued, status }
 }
+
+// Reconcile a learner's displayed status from the daemon's result. The daemon writes only its
+// per-slug provision-status object; it never touches the registry. So the effective status has
+// to be derived here (reconcile-on-read): the invite left the registry at 'provisioning', and
+// this maps the daemon's outcome back onto it. Pure — callers decide whether to persist.
+//   queued           → still 'provisioning' (request pending, daemon hasn't picked it up)
+//   state 'error'    → 'error'
+//   state 'done'     → by action: create/resume ⇒ active, suspend ⇒ suspended, deprovision ⇒ deprovisioned
+//   no daemon result → the stored status (a code seed with no provision-status is already live)
+const DONE_STATUS_BY_ACTION = { create: 'active', resume: 'active', suspend: 'suspended', deprovision: 'deprovisioned' }
+export function reconcileStatus(entry, provStatus, queued) {
+  if (queued) return 'provisioning'
+  if (provStatus?.state === 'error') return 'error'
+  if (provStatus?.state === 'done') return DONE_STATUS_BY_ACTION[provStatus.action] || entry?.status || 'active'
+  return entry?.status || 'active'
+}
+
+// A status the daemon has resolved to a stable end-state — safe to persist back into the
+// registry so the roster reflects it without re-reading provision-status every load.
+const TERMINAL_STATUSES = new Set(['active', 'suspended', 'deprovisioned'])
+export function isTerminalStatus(status) {
+  return TERMINAL_STATUSES.has(status)
+}

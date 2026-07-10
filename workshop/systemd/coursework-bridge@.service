@@ -14,6 +14,10 @@ User=%i
 # legacy static tokens starts fine during cutover.
 EnvironmentFile=/etc/coursework/%i.env
 EnvironmentFile=-/etc/coursework/signing.env
+# Shared, long-lived Claude auth (CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`, ONE
+# dedicated subscription account). Static token → no refresh rotation, so every user's tmux/
+# claude inherits it and stays logged in. Replaces the fragile per-user ~/.claude file copy.
+EnvironmentFile=-/etc/coursework/claude-oauth.env
 WorkingDirectory=/opt/coursework/bridge
 ExecStart=/usr/bin/node /opt/coursework/bridge/server.mjs
 Restart=always

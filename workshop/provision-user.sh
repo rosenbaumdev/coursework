@@ -84,7 +84,8 @@ if [[ -n "$COPY_AUTH_FROM" ]]; then
     echo "[!] $SRC_HOME/.claude not found — skipped; $USER_NAME must run 'claude' and log in on first use"
   fi
 else
-  echo "[i] no --copy-auth-from: $USER_NAME will run 'claude' and authenticate on first use (own credential)"
+  echo "[i] no --copy-auth-from: auth comes from the shared CLAUDE_CODE_OAUTH_TOKEN env"
+  echo "    (/etc/coursework/claude-oauth.env, loaded by coursework-bridge@$USER_NAME) — no per-user login."
 fi
 
 # 5. services

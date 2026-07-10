@@ -42,6 +42,22 @@ function autoFont(width) {
   if (width < 640) return 11
   return FONT_DEFAULT
 }
+// The text currently visible on screen (the viewport rows), read straight from the buffer.
+// Fallback for the Copy button when there's no selection — under a TUI's mouse-reporting mode
+// a plain drag never makes a selection, so "copy what I see" is the reliable path.
+function viewportText(term) {
+  try {
+    const buf = term.buffer.active
+    const start = buf.viewportY
+    const out = []
+    for (let i = 0; i < term.rows; i++) {
+      const line = buf.getLine(start + i)
+      out.push(line ? line.translateToString(true) : '')
+    }
+    return out.join('\n').replace(/[ \t]+$/gm, '').replace(/\n+$/, '')
+  } catch { return '' }
+}
+
 // The arrow / control sequences an on-screen key sends to the PTY.
 const KEY_SEQ = {
   esc: '\x1b',
@@ -76,8 +92,40 @@ export default function LiveTerminal({ url, token, getToken, onStatus, onLiveSta
   const [fontSize, setFontSize] = useState(FONT_DEFAULT)
   const [panelOpen, setPanelOpen] = useState(false)
   const [ctrlArmed, setCtrlArmed] = useState(false)
+  const [copyFlash, setCopyFlash] = useState('')
+  const flashTimer = useRef(null)
   ctrlArmedRef.current = ctrlArmed
   disarmCtrlRef.current = () => setCtrlArmed(false)
+
+  // Copy the current selection, or — when there's none (a TUI's mouse mode swallows drags) —
+  // the visible screen. Always puts real text on the clipboard, on mobile and desktop alike.
+  function copyFromTerminal() {
+    const term = termRef.current
+    if (!term) return
+    const sel = term.hasSelection() ? term.getSelection() : ''
+    const text = sel || viewportText(term)
+    if (!text) { flashCopy('Nothing to copy'); return }
+    copyText(text)
+    flashCopy(sel ? 'Copied selection' : 'Copied screen')
+  }
+  function flashCopy(msg) {
+    setCopyFlash(msg)
+    clearTimeout(flashTimer.current)
+    flashTimer.current = setTimeout(() => setCopyFlash(''), 1500)
+  }
+  // Explicit paste (touch has no ⌘V, and desktop ⌘V is handled natively by xterm). Reads the
+  // clipboard and sends it via term.paste (respects bracketed-paste). Surfaces WHY on failure —
+  // clipboard.readText needs a gesture + permission and is silently blocked in some browsers.
+  function pasteHere() {
+    const term = termRef.current
+    if (!term) return
+    const read = navigator.clipboard?.readText?.()
+    if (!read) { flashCopy('Use ⌘V to paste'); return }
+    read.then((t) => {
+      if (t) { term.paste(t); term.focus(); flashCopy('Pasted') }
+      else flashCopy('Clipboard empty')
+    }).catch(() => flashCopy('Blocked — use ⌘V'))
+  }
 
   function applyFont(size) {
     const s = Math.max(FONT_MIN, Math.min(FONT_MAX, size))
@@ -178,13 +226,12 @@ export default function LiveTerminal({ url, token, getToken, onStatus, onLiveSta
         copyText(term.getSelection())
         return false
       }
-      const pasteCombo =
-        (IS_MAC && e.metaKey && key === 'v') || (!IS_MAC && e.ctrlKey && e.shiftKey && key === 'v')
-      if (pasteCombo) {
-        e.preventDefault()
-        pasteFromClipboard(term)
-        return false
-      }
+      // Paste: DON'T intercept ⌘V / Ctrl-Shift-V — let xterm's built-in paste handle it.
+      // It reads the clipboard synchronously off the real DOM paste event (works in Safari,
+      // no flaky clipboard.readText permission) and applies bracketed-paste exactly as the
+      // running app requested — which is what keeps a long OAuth code intact. The old
+      // readText→term.paste path could deliver a partial/mangled string, so a pasted login
+      // code failed the token exchange (OAuth 400). Native paste is the reliable path.
       return true
     })
 
@@ -320,6 +367,7 @@ export default function LiveTerminal({ url, token, getToken, onStatus, onLiveSta
       if (reportTimer) clearTimeout(reportTimer)
       if (settleTimer) clearTimeout(settleTimer)
       if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (flashTimer.current) clearTimeout(flashTimer.current)
       clearTimeout(t1); clearTimeout(t2)
       hostEl.removeEventListener('contextmenu', onContextMenu)
       unregisterExtractor()
@@ -382,6 +430,17 @@ export default function LiveTerminal({ url, token, getToken, onStatus, onLiveSta
               Ctrl armed — tap a letter to send Ctrl-&lt;letter&gt; (e.g. C to interrupt).
             </div>
           )}
+
+          <div className="mt-3 flex items-center gap-2">
+            <button {...hold(copyFromTerminal)} className={`${keyCls} flex-1`}>⧉ Copy</button>
+            <button {...hold(pasteHere)} className={`${keyCls} flex-1`}>⇥ Paste</button>
+            {copyFlash && <span className="font-mono text-[10px] text-[#28c840]">{copyFlash}</span>}
+          </div>
+          <div className="mt-1 font-mono text-[9px] leading-tight text-[#9ca3af]">
+            Copy grabs your selection, or the visible screen. To select inside a menu, hold{' '}
+            {IS_MAC ? '⌥ Option' : 'Shift'} while dragging, then {IS_MAC ? '⌘C' : 'Ctrl-Shift-C'}.
+            Paste also works with {IS_MAC ? '⌘V' : 'Ctrl-Shift-V'}.
+          </div>
         </div>
       )}
 

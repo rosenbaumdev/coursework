@@ -26,7 +26,10 @@ const env = process.env
 const ACCOUNT = env.R2_ACCOUNT_ID
 const BUCKET = env.R2_BUCKET || 'coursework-interview'
 const SCRIPT = env.PROVISION_SCRIPT || '/opt/coursework/provision-user.sh'
-const AUTH_SOURCE = env.AUTH_SOURCE || 'coder'
+// Auth is now the shared CLAUDE_CODE_OAUTH_TOKEN env (a long-lived setup-token loaded by the
+// bridge service), NOT a copied ~/.claude credential file — copying a live OAuth credential
+// caused refresh-token rotation and logout cascades. Leave AUTH_SOURCE empty to skip the copy.
+const AUTH_SOURCE = env.AUTH_SOURCE || ''
 const ROUTES = env.ROUTES_FILE || '/opt/coursework/routes.json'
 const POLL_MS = Number(env.POLL_MS || 5000)
 const QUEUE_PREFIX = 'admin/provision-queue/'
@@ -94,7 +97,9 @@ function handle(req) {
   switch (action) {
     case 'create': {
       const { appPort, bridgePort } = freePorts()
-      const out = sh('bash', [SCRIPT, user, String(appPort), String(bridgePort), '--copy-auth-from', AUTH_SOURCE])
+      const args = [SCRIPT, user, String(appPort), String(bridgePort)]
+      if (AUTH_SOURCE) args.push('--copy-auth-from', AUTH_SOURCE) // legacy; default off (env-token auth)
+      const out = sh('bash', args)
       return { state: 'done', detail: `created (app:${appPort} bridge:${bridgePort})`, tail: out.slice(-400) }
     }
     case 'suspend':

@@ -11,7 +11,7 @@ import OrientationToggle from './OrientationToggle.jsx'
 import { useScriptedSessionDriver, useSSESessionDriver } from '../../session/useSessionDriver.js'
 import { SHOWCASE_SESSION } from '../../session/scriptedSession.js'
 import { describeCanvas } from '../../session/describeCanvas.js'
-import { getStudent } from '../../students.js'
+import { useStudent } from '../../hooks/useStudent.js'
 
 const NARROW_QUERY = '(max-width: 767px)'
 const DEFAULT_RATIO = 0.6
@@ -47,7 +47,7 @@ export default function SessionView() {
     token: _params.get('termToken') || _params.get('token') || '',
     viewer: _params.get('viewer'),
   }
-  const student = getStudent(studentSlug)
+  const { student } = useStudent(studentSlug)
   const studentName = student?.name
 
   const [selecting, setSelecting] = useState(false)
