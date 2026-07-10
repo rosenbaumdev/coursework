@@ -1,5 +1,131 @@
 # Status (rolling)
 
+## 🔒 Enforce per-learner isolation (AUTHZ flip, 2026-07-09) — DEPLOYED + VERIFIED LIVE
+DEPLOYED (2 deploys: enforcement, then a caching-bypass fix). VERIFIED LIVE on the no-Access pages.dev
+alias: /<slug>/api/* + /<slug>/files/* + /api/admin/* → 401 for anon (fail-closed, body {"error":"Not
+signed in"}, no-store); /api/me + shell/static → open. Repeated plain GET stays 401 (no cacheable 200).
+CACHING BYPASS (found during verify, FIXED): jsonResponse set no cache-control + /files set
+`public,max-age=300`, so CF shared-cached GETs by URL (not identity) and served a cached 200 PAST the
+gate (observed live). Fix: `_middleware.js` forces `no-store` on ALL /api/* + /<slug>/api/* responses
+(post-next wrap); files route → `private,max-age=300` (browser-cacheable, never shared). isApiPath added.
+Authed ALLOW-path (jodi loads /jodi, admin all) is logic-verified only (19/19 + 10/10 unit) — can't mint
+real Access JWTs; worth eyeballing jodi's login once. STILL UNCOMMITTED in git.
+- HTML-ROUTE GAP (reported: "acme can reach /zachary"; FIXED + deployed): the gate only covered
+  /<slug>/(api|files); the bare /<slug> + /<slug>/session HTML routes were open, and the SPA renders a
+  learner's course SHELL from the STATIC client bundle (src/students.js ships all code seeds) + the PUBLIC
+  course md — no gated API needed. Fix: `learnerScope(path)` (first segment = known learner via getStudent);
+  enforceAuthz now gates learner HTML too → owner/admin ALLOW, else REDIRECT to their own course (data paths
+  still JSON 403/401). Added `accessAction()` (pure, exported, 19/19 unit). no-store wrapper extended to
+  learnerScope paths so a cached shell can't bypass the redirect. VERIFIED LIVE (pages.dev, anon): /zachary +
+  /jordan + /contentcreator + /acme + /jodi + /test-user all → 401+no-store; /, /dad, /admin, assets, /api/me
+  → 200. (First probe showed /zachary=200 = edge propagation lag; consistent 401 after.)
+- NOTE (minor, not fixed): the static client bundle still lists code-seed learners' names/course titles, and
+  the course template md (/zachary-noob-...md) is public (shared across learners on that course). Route is
+  hard-blocked now; residual is only that the JS bundle mentions other learners exist. Follow-up if it matters:
+  fetch the owner's config from /api/student instead of shipping all seeds in the bundle.
+Ask: each user sees ONLY their own course (jodi's Google account → /jodi only, etc.). Big issue:
+enforcement was DARK (AUTHZ_ENFORCE unset) so past CF Access anyone could read any /<slug>/api/*, AND
+the pages.dev alias (no CF Access) served /<slug>/api/* to the open internet.
+- ROOT CAUSE: learner data APIs don't self-gate; they relied on a middleware default-deny gated behind
+  AUTHZ_ENFORCE (off). Admin APIs already self-gate (requireAdmin) — not affected.
+- GAP FOUND + FIXED: /<slug>/files/* (course materials from R2) is NOT under /api so the old gate missed
+  it. New gate covers /<slug>/(api|files)/* uniformly.
+- CHANGES: `_middleware.js` — extracted pure `authzDecision(path,id)` + `isGatedPath`; gate now
+  api+files. `wrangler.toml [vars] AUTHZ_ENFORCE="1"` (version-controlled, remove line to disable).
+- MODEL: identity from verified CF Access JWT (`_access.js`); courses = email→slug grants in R2
+  admin/access.json; admins = BOOTSTRAP_ADMINS ∪ grants.admins → courses ['*']. Fail-closed.
+- LIVE GRANTS (verified from prod R2): jnwearne@gmail.com→jodi, astarr@kitbord.com→acme. Admin=jonathan
+  via BOOTSTRAP_ADMINS. So jodi/acme keep working, isolated; admin reaches all.
+- ⚠ ROLLOUT RISK RESOLVED (2026-07-09): zachary + jordan self-login (zachary@rosenbaum.us,
+  jordan@rosenbaum.us). Added their grants to prod R2 admin/access.json (verified read-back: 4 grants —
+  acme, jodi, zachary, jordan). Additive write while enforcement still dark → no effect until deploy, no
+  lockout window. test-user/zachary-test/contentcreator remain admin-only (fine).
+- VERIFIED: 19/19 authzDecision unit assertions (jodi↔acme mutually blocked on api+files; anon/pages.dev
+  →401; admin→all; non-admin→admin 403; shell/assets/me/course-md open). NOT deployed; can't mint real
+  Access JWTs so the authed happy-path is logic-verified, not browser-driven.
+- NEXT: user deploys (`npm run deploy`); confirm zachary/jordan don't self-login (or grant them); then
+  verify live: pages.dev/<slug>/api/student → 401 (was 200). Optional: widen CF Access policy now that
+  app-authz isolates.
+
+## 📦 Per-learner authored day-packs (deferred from names/pronouns work, 2026-07-09) — TODO
+WHY: `getSessionPack` keys packs by COURSE, and the invite flow (`findCourseTemplate` in `_students.js`)
+makes every new learner INHERIT the template's authored day-packs. So acme (invited on
+noob-to-ai-entrepreneur) runs ZACHARY_DAY_1/DAY_2 verbatim — its Day-2 opener recites "the AI investing
+translator, the simplified transy you decided yesterday," which is Zachary's decision, not acme's. The
+{{name}} token + neutral pronouns fix (shipped separately) fixes the NAME/gender but NOT the substance:
+the pack content is authored for Zachary (his interview, his prior-day decisions, his venture).
+PROVEN LIVE: acme's /acme/session?day=2 greeted "Zachary — good to see you. Yesterday you made a real
+call: the AI investing translator…" (screenshot 2026-07-09).
+
+GOAL: each learner's day content is authored/generated from THEIR OWN profile + prior-day outcomes, not
+shared from a course template. Sketch (revisit before building):
+- [ ] Pack store keyed by (learner, course, day), not just (course, day) — getSessionPack resolves
+      per-learner first, falls back to the course template only for un-authored days.
+- [ ] Authoring step: generate a learner's day-pack from their interview profile + prior days' session
+      outcomes/artifacts (the same way Zachary's DAY_1/DAY_2 were hand-authored from his profile).
+- [ ] Day-N back-references ("yesterday you decided X") must read the learner's ACTUAL Day-(N-1) outcome
+      (session/artifacts/report in R2), never a hardcoded prior decision.
+- [ ] Invite flow: stop making a new learner silently inherit the template's authored packs; either
+      author on demand or gate Day-2+ until authored. (`findCourseTemplate` shares mdFile too — decide
+      whether display md is per-learner as well.)
+- [ ] The {{name}}/pronoun personalization stays correct for whatever authored pack a learner gets.
+
+## 🔤 Names/pronouns key off the learner account (2026-07-09) — DEPLOYED TO PROD
+DEPLOYED 2026-07-09 (user ran `npm run deploy` → https://b549845e.coursework-5lg.pages.dev, branch main =
+prod). VERIFIED LIVE: prod `coursework-5lg.pages.dev/acme/api/student` returns the new `displayName` field
+({"name":"acme","nickname":null,"displayName":"acme",...}) → new code is live. acme→"acme", pronouns unset
+→ neutral they. NOTE: acme's EXISTING Day-2 opener is persisted in R2 history — must hit ↻ RESTART to
+regenerate from the fixed pack. After restart: greeted "acme" (name fixed) but still recites Zachary's
+storyline (deferred to the per-learner-packs TODO above). STILL UNCOMMITTED in git.
+Ask: courses must not assume a name. Resolve from account name, or a nickname the learner set
+(admin-settable now; learner-facing "persona instructions" UI stays Phase III). Pronouns: default
+Ask: courses must not assume a name. Resolve from account name, or a nickname the learner set
+(admin-settable now; learner-facing "persona instructions" UI stays Phase III). Pronouns: default
+NEUTRAL (they/them) — never assume gender, never prompt the learner; override only when known (admin).
+
+Scope (confirmed w/ Jonathan): Option 1 + neutral pronouns. De-hardcode packs; resolve name from
+account (nickname||name); add optional `nickname`+`pronouns` to registry + admin edit/invite + UI.
+Honest caveat: noob packs are Zachary's AUTHORED content (his interview/venture) — de-naming stops
+mis-naming but does NOT make that pack correct for a different learner. Flagged, not solved here.
+
+Findings (verified): runtime AI already injects account name at every seam (_session.js:835 Director,
+:1412 Observer, _interview base/envelope/profile, ClaudeLauncher). LEAK = _sessionPacks.js noob packs
+hardcode "Zachary" in masterPrompt (492,1249,1268), opener (1223,1483), DISPLAYED canvas card (1428);
+pronouns he/him hardcoded (486 Day1, 1237 Day2) but routed via single pack.pronouns (97 uses). .md
+files are DISPLAY-ONLY (never hit AI): jordan "Jordan" x45, content-creator "she/her" x52 + "the student" x11.
+No nickname/settings feature exists (registry stores only name; admin edits name/email/status).
+
+Mechanism: cached pack stays name-agnostic ({{name}} tokens + neutral pronouns); per-request
+`personalizePack(basePack, student)` clones with pronouns resolved + {{name}} substituted across
+masterPrompt/oneLine/title/entry.context/canvasProgram. Consumers swap after getSessionPack.
+
+- [x] 1. _students.js: displayNameOf() + resolvePronouns() helpers; PRONOUN_SETS {they,he,she} w/ verb forms;
+       nickname/pronouns through registryToStudent + applyOverrides.
+- [x] 2. _sessionPacks.js: import PRONOUN_SETS; both noob packs → PRONOUN_SETS.they; literal "Zachary" → {{name}}
+       (masterPrompt/opener/DISPLAYED canvas card). Only comments name Zachary now.
+- [x] 3. _session.js: personalizePack(pack, student) = substituteName deep-clone + resolvePronouns; newLesson
+       studentName=displayNameOf. Cached pack stays name-agnostic (proven: cache unmutated after personalize).
+- [x] 4. Consumers personalize after getSessionPack: session start.js / message.js / glance.js / canvas.js.
+       (artifact.js + admin ask.js render no learner name/pronoun text → left unchanged.)
+- [x] 5. _interview.js: newSession studentName=displayNameOf; de-gendered all hardcoded he/him/his → they/their.
+- [x] 6. Admin: learner/[slug].js EDITABLE += nickname,pronouns (clearable, pronoun-validated); learners.js
+       invite accepts optional nickname/pronouns; both GETs surface them; AdminView invite+edit inputs.
+- [x] 7. Client: /api/student.js returns displayName; src/students.js displayNameOf(); ClaudeLauncher +
+       NotesThread address by displayName. (App tab title left as account name — a label, not addressing.)
+- [~] 8. .md files FLAGGED, not rewritten: display-only (never hit AI); jordan-sports-betting.md is Jordan's
+       OWN course; content-creator.md is gendered marketing copy. Full neutralization = a content-authoring
+       pass (same caveat as packs: a name token alone doesn't make gendered copy reusable). zachary md already neutral.
+- [x] 9. Verified: 20/20 helper+personalizePack unit assertions (incl. cache-not-mutated + displayed canvas card);
+       6/6 on the ASSEMBLED model-facing system prompt (right name, no Zachary leak, she→she/her, unset→they/them);
+       client build clean; all changed server modules import cleanly (no circular deps).
+
+DONE (code complete, unit-verified). NOT browser-driven end-to-end (bg job) and NOT deployed/committed.
+KNOWN cosmetic: neutral 'they' inherits the prompt's third-person-singular verb agreement ("they has/says") —
+semantically clear, model-robust, and already the codebase norm (SHOWCASE default pack). Accepted uniformly
+rather than a half-fix. PRONOUN_SETS carry be/have forms if a future pass wants full agreement.
+
+---
+
 ## 🚀 Automated onboarding + admin console + user settings (2026-07-08) — IN PROGRESS
 Full plan: `~/.claude/plans/plan-id-like-elegant-whistle.md`. Goal: invite a learner → auto-create
 registry entry (replicate an existing course) → auto-provision the VM user → invite link, with NO

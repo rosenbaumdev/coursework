@@ -1,5 +1,52 @@
 # Architectural Decisions
 
+## Per-learner isolation enforced (AUTHZ_ENFORCE flip) — 2026-07-09
+**What:** Turned on app-side default-deny (`AUTHZ_ENFORCE="1"` in wrangler.toml [vars]). `_middleware.js`
+gates every `/<slug>/(api|files)/*` to the owning learner (email→slug grant in R2 admin/access.json) and
+`/api/admin/*` to admins (BOOTSTRAP_ADMINS ∪ grants.admins). Identity = verified CF Access JWT (`_access.js`).
+Fail-closed: no identity → 401, wrong identity → 403. Decision logic extracted to a pure, unit-tested
+`authzDecision(path,id)`. Grants added for all real self-login learners: jodi, acme, zachary, jordan.
+**Two-layer model:** CF Access = the OUTER door (who reaches the app at all); these app grants = the INNER
+isolation (which slug each identity sees). Now safe to widen the CF Access policy because the app isolates.
+**Caching bypass (found + fixed during live verify):** CF shared-caches cacheable GETs keyed by URL, not
+identity — a cached 200 (`/api/me`, `/<slug>/api/student`, `/<slug>/files/*` which set `public,max-age=300`)
+was served to other identities WITHOUT re-running the gate (observed live). Fix: middleware forces
+`no-store` on all API responses; files route → `private,max-age=300` (browser-only cache, never shared).
+Non-sensitive shell/assets stay cacheable. LESSON: an auth gate in a Worker is bypassable by the edge cache
+unless sensitive responses are explicitly non-shared-cacheable.
+**Why the /files gap mattered:** `/<slug>/files/*` isn't under `/api/`, so an api-only gate missed it — it
+streamed per-learner R2 materials ungated. The gate now covers api+files uniformly.
+**Alternatives considered:** (a) self-gate each learner endpoint like requireAdmin — rejected: ~15 endpoints,
+easy to miss one → leak; the middleware is one uniform chokepoint. (b) Leave enforcement dark until CF Access
+widened — rejected: the pages.dev alias (no Access) was serving /<slug>/api/* to the open internet.
+**Confidence:** 90% — deny-path proven live (401 on api+files+admin, no-store verified); authed allow-path
+(jodi→/jodi, admin→all) is unit-verified only (can't mint real Access JWTs). Eyeball one real login.
+
+## Courses never assume a learner's name or gender — 2026-07-09
+**What:** Nothing in the course engine hardcodes a learner name or gender. The name a course
+addresses the learner by is `displayNameOf(student)` = nickname || account name (`_students.js`);
+pronouns resolve via `resolvePronouns(student)` defaulting to NEUTRAL singular `they` and used only
+when genuinely known. Session packs are authored name-agnostic (a `{{name}}` token + neutral
+`PRONOUN_SETS.they`) and CACHED that way; a per-request `personalizePack(pack, student)` deep-clones
+the cached pack, substitutes `{{name}}` everywhere (masterPrompt, opener, DISPLAYED canvas cards) and
+overrides pronouns for THAT learner. `newLesson`/`newSession` store `studentName = displayNameOf`.
+Nickname + pronouns are admin-settable (registry entry fields; invite + edit; validated to he/she/they).
+**Why:** Packs are keyed by COURSE, so any learner replicating a course inherited hardcoded "Zachary"
+(incl. a canvas card literally shown to the learner) and he/him. The single injection seam already fed
+the account name to the live AI; the leak was authored constants in `_sessionPacks.js`.
+**Alternatives considered:** (a) reword prose to "the learner" only — fails the DISPLAYED canvas card,
+which must render the real name. (b) Thread name/pronouns through every builder signature — 97 pronoun
+sites; rejected for the one-seam personalizePack clone. (c) Build the learner-facing "persona
+instructions" settings UI now — deferred to Phase III; admin-settable covers the need today. (d) Ask the
+learner their pronouns — rejected (intrusive); default neutral, override only when known.
+**Known cosmetic:** neutral `they` inherits the prompt's third-person-singular verb agreement
+("they has/says") — semantically clear, model-robust, already the norm for the SHOWCASE default pack.
+Accepted uniformly over a half-fix. `PRONOUN_SETS` carry be/have forms for a future full-agreement pass.
+**Not solved (flagged):** the noob packs are Zachary's AUTHORED content (his interview/venture); de-naming
+stops mis-naming but doesn't make that pack correct for a different learner. Legacy display-only `.md`
+courses (jordan/content-creator) still carry name/gender in reading copy — a separate content-authoring track.
+**Confidence:** 90% (unit-verified incl. assembled model-facing prompt; not yet browser-driven or deployed).
+
 ## Values-aware decisions: the growable-row matrix primitive + values scorecard — 2026-07-07
 **What:** When a session decision hinges on the learner's own value system (e.g. which arc to build), the engine elicits and weighs those values on a **values scorecard** — a matrix figure whose COLUMNS are the options (the arcs) and whose ROWS are the learner's own named values, added at runtime. The reusable engine primitive is a **growRows matrix**: `spec.growRows:true` lets rows be appended live via `[FIG: <key> :: addrow="rowid|Label"]` (one per tag, parallel to iconrow's `add=`), capped at the 8-row matrix budget, deduped, malformed ids dropped. Cells hold a 1-5 fit score + reason, landed like any scoreboard cell. Row additions are stored in a new session field `figureRowAdditions` (session/R2 state, NOT the localStorage tracker schema), threaded through `resolveShowTarget`/`resolveFigureDir`/the Scribe, merged into `spec.rows` by `mergeFigureValues`, and surfaced in the envelope's current-values line (`row:id="Label"`) because control tags are stripped from model history. Day-1 instantiates it with `figure.values` + two objectives (`values.named` front, `values.weighed` tail) + a generic `VALUES DRIVERS` masterPrompt rule (elicit-first, score-at-decision, weigh scale AND fit — never let biggest TAM silently win).
 **Why:** Jonathan: "if a decision is based upon a user value system … coursework should really understand the value drivers to help the user make the right choice." Sizing (TAM/SAM/SOM/Rev) is the scale axis; a personal 6-week build must also be weighed on non-scale fit, and Zachary won't volunteer his values unprompted. He chose "global primitive now" over a day-1 hardwire, so the capability (growRows matrix) lives in the engine and any pack can declare a values-scorecard; the day-1 pack is one instance.

@@ -24,6 +24,11 @@ pages_build_output_dir = "./dist"
 [vars]
 TERMINAL_WS_URL = "https://eye-recruiting-views-kingston.trycloudflare.com"
 APP_VIEWER_URL = "https://eye-recruiting-views-kingston.trycloudflare.com"
+# App-side authorization ON (Phase II flip). Default-deny in _middleware.js gates
+# /<slug>/(api|files)/* to the owning learner (email→slug grant in R2 admin/access.json)
+# and /api/admin/* to admins (BOOTSTRAP_ADMINS + grants.admins). Any value = enforced;
+# REMOVE this line (not set to "0" — a non-empty string is still truthy) to disable.
+AUTHZ_ENFORCE = "1"
 
 [[r2_buckets]]
 binding = "STORAGE"

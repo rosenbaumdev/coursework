@@ -23,7 +23,11 @@ export async function onRequestGet({ params, env, request }) {
   const headers = new Headers()
   object.writeHttpMetadata(headers)
   headers.set('etag', object.httpEtag)
-  headers.set('cache-control', 'public, max-age=300')
+  // PRIVATE, never public: these files are per-learner (keyed by the course r2Prefix) and the
+  // route is gated to the owning learner in _middleware.js. A shared/edge cache keyed by URL
+  // would serve one learner's material to another without re-running the gate. `private` lets
+  // the owner's browser cache it, but no shared cache may store it.
+  headers.set('cache-control', 'private, max-age=300')
 
   if (request.method === 'HEAD') {
     return new Response(null, { headers })

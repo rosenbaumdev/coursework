@@ -1,7 +1,60 @@
 # Coursework Tracker — Session State
-Last updated: 2026-07-08 (Phase I shipped)
+Last updated: 2026-07-09 (names/pronouns key off account, not hardcoded)
 
-## Completed This Session (Phase I — signed rotating workshop tokens)
+## Completed This Session (names/pronouns de-assumption — DEPLOYED TO PROD, still uncommitted)
+- DEPLOYED 2026-07-09 (branch main = prod, coursework.kitbord.com). VERIFIED LIVE via prod alias
+  `coursework-5lg.pages.dev/acme/api/student` → new `displayName` field present (acme→"acme", nickname
+  null, pronouns unset→neutral they). acme's persisted Day-2 opener needs ↻ RESTART to regenerate.
+- DEFERRED (added to todo.md top): PER-LEARNER AUTHORED PACKS. Root issue exposed by acme's live Day-2
+  greeting "Zachary — good to see you. Yesterday you made a real call: the AI investing translator…":
+  getSessionPack keys packs by COURSE + findCourseTemplate makes invited learners inherit the template's
+  ZACHARY_DAY_1/2 verbatim. The {{name}}/pronoun fix corrects name+gender, NOT the Zachary-specific
+  content. Real fix = author each learner's day-packs from THEIR profile + prior-day outcomes.
+- Courses no longer assume a learner's name OR gender. Name a course addresses the learner by =
+  `displayNameOf(student)` (nickname || account name); pronouns = `resolvePronouns(student)` default
+  NEUTRAL singular they, used only when known. New helpers + `PRONOUN_SETS{they,he,she}` (w/ be/have
+  verb forms) in `functions/_students.js`; nickname/pronouns threaded through registryToStudent + applyOverrides.
+- Root fix: session packs (`_sessionPacks.js`) hardcoded "Zachary" (incl. a canvas card SHOWN to the
+  learner) + he/him. Packs now author name-agnostic ({{name}} token + PRONOUN_SETS.they) and stay that
+  way in the shared CACHE. New `personalizePack(pack, student)` in `_session.js` deep-clones per request,
+  substitutes {{name}} (masterPrompt/opener/canvas) + resolves pronouns. Wired into session start/message/
+  glance/canvas. `newLesson`/`newSession` store studentName=displayNameOf. `_interview.js` de-gendered
+  (all he/him/his → they/their; intake never knows gender).
+- Admin: nickname + pronouns are registry fields, editable via `learner/[slug].js` (clearable, pronoun-
+  validated he/she/they) and invite (`learners.js`); surfaced in both admin GETs; inputs added to
+  AdminView invite + edit forms. Client: `/api/student.js` returns displayName; `src/students.js`
+  displayNameOf(); ClaudeLauncher + NotesThread address by displayName.
+- VERIFIED: 20/20 unit assertions (helpers + personalizePack, incl. displayed canvas card + cache-not-
+  mutated); 6/6 on the ASSEMBLED model-facing system prompt (right name, zero Zachary leak, she→she/her,
+  unset→they/them/their, no he/him assumption); `npm run build` clean; all changed server modules import
+  cleanly (no circular deps). NOT browser-driven end-to-end (bg job); NOT deployed; still UNCOMMITTED.
+- Known cosmetic + deferred: see decisions.md "Courses never assume a learner's name or gender". Legacy
+  display-only `.md` courses (jordan/content-creator) still carry name/gender in reading copy — flagged as
+  a separate content-authoring track (never hit the AI; jordan's md is his own course).
+- NEXT for this thread: eyeball a non-Zachary learner in-browser (invite a dev learner w/ nickname+pronouns
+  from PROD /admin → open their Day 2 → confirm greeting + canvas card use the nickname, pronouns neutral/set),
+  then deploy + commit with the rest of the pending work.
+
+## Provisioning daemon + workshop Claude auth (2026-07-09) — DONE, live on droplet
+- Daemon INSTALLED + PROVEN: invite from prod /admin → daemon creates the isolated account → status
+  reconciles provisioning→active. Runs as systemd `coursework-provisioner` (survives logout/reboot).
+- WORKSHOP CLAUDE AUTH SOLVED (big thread): copying `~/.claude` creds between users FAILS — OAuth
+  refresh tokens rotate → logout cascades (acme's copied cred drifted 504→276 bytes, 401'd). Switched
+  to ONE shared long-lived **setup-token** (`claude setup-token`, ~1yr, `sk-ant-oat01-…`) supplied via
+  **`CLAUDE_CODE_OAUTH_TOKEN`** env. Lives in `/etc/coursework/claude-oauth.env` (root 600), loaded by
+  `coursework-bridge@.service` (`EnvironmentFile=-`), inherited by tmux/claude (`env:process.env` in
+  server.mjs). Daemon/provision-user.sh no longer copy auth (AUTH_SOURCE empty). Full model + gotchas
+  in memory `project_workshop_auth.md`. VERIFIED: acme `claude -p`→AUTH_OK; bridge /proc/environ has the
+  token (grep -c = 1). acme + jonathan migrated (rm stale .credentials.json, restart bridge, tmux kill-server).
+- Local repo changes for this (workshop/coursework-bridge@.service, provision-daemon.mjs [AUTH_SOURCE
+  default '', conditional --copy-auth-from], provision-user.sh messaging) are scp'd to the droplet but
+  still UNCOMMITTED locally.
+- REMAINING: (1) eyeball acme's LIVE terminal in-browser (should be logged in, no /login). (2) ZACHARY
+  not yet migrated (live student — do rm .credentials.json + restart bridge + tmux kill-server when he's
+  not mid-session, so he's on the stable token too). (3) coder's own default-route terminal unauthed (only
+  matters if the legacy no-prefix route is used). (4) token regen reminder ~11 months out.
+
+## Completed Prior Session (Phase I — signed rotating workshop tokens)
 - Retired per-user static tokens. App now mints HMAC-SHA256 signed, short-lived tokens
   (`functions/_workshopToken.js`, TTL 24h) served from `GET /<slug>/api/session/workshop-token`;
   client (`WorkshopCanvas` → `LiveTerminal`) re-fetches a fresh token per (re)connect.
@@ -42,8 +95,66 @@ Last updated: 2026-07-08 (Phase I shipped)
 - ENFORCEMENT FLIP (later, coordinated): learner access will come from registry email→slug;
   then set `AUTHZ_ENFORCE=1`, verify fail-closed, THEN Jonathan widens the CF Access policy.
 
+## Phase II admin + dev cohort (2026-07-09)
+- II-3 admin console (`/admin`, `src/components/AdminView.jsx` + `functions/api/admin/*`): roster,
+  per-learner progress/transcripts, "ask AI about learner", invite, provision controls — DONE.
+- II-4 provisioning (app→droplet, pull): `functions/_provision.js` (R2 queue), invite enqueues
+  `create`, `workshop/provision-daemon.mjs` + systemd unit written — DONE app-side. Daemon NOT yet
+  installed on droplet (Jonathan sets it up).
+- DEV COHORT (new): learners can be flagged `dev:true` at invite. Stored in registry; surfaced in
+  roster/detail; grouped in a separate "Dev users" section; `dev` badge. Purpose: observe MULTIPLE
+  distinct dev accounts (each its own droplet shell) without a second droplet — per-user isolation
+  makes throwaway dev accounts on the prod droplet safe.
+- DELETE learner (new): `DELETE /api/admin/learner/:slug` — enqueues `deprovision`+wipe, drops the
+  registry entry, revokes the email→slug grant. Refuses code-seed slugs (409). UI: red "Delete" in
+  detail header (registry learners only) + confirm. VERIFIED locally: invite dev → roster dev=true →
+  delete ok; zachary delete → 409. No daemon change needed (reuses existing deprovision action).
+- KEY CONSTRAINT: the droplet daemon reads PROD R2. So dev users must be INVITED FROM PROD /admin to
+  actually provision on the droplet — a local-dev invite lands in isolated local R2 the daemon never sees.
+
+- STATUS RECONCILIATION (fixes "stuck in provisioning"): root cause was that NOTHING advanced a
+  learner's registry status out of 'provisioning' — invite sets it, the daemon writes only its
+  separate admin/provision-status/<slug>.json and never touches registry.json, and the admin renders
+  the registry value. New `reconcileStatus(entry, provStatus, queued)` + `isTerminalStatus()` in
+  `functions/_provision.js` (queued→provisioning, error→error, done→active/suspended/deprovisioned).
+  Wired reconcile-on-read + self-heal into both admin GETs (`learners.js` roster reconciles only
+  'provisioning' rows; `learner/[slug].js` reconciles + persists terminal transitions back to the
+  registry). UI: StatusPill gains 'error' (red); ProvisionControls surfaces the daemon error detail +
+  a "Retry provisioning" button, and a "no daemon result yet — daemon may not be running" hint when
+  provisioning with an empty queue/status. VERIFIED locally by simulating the daemon (injected
+  provision-status into miniflare R2 via `wrangler r2 object put --local --persist-to .wrangler/state`):
+  done→active + registry self-healed (raw R2 confirms acme.status=active); error→error + detail
+  surfaced + NOT persisted (stays provisioning, retryable). 10/10 unit assertions on the mapping.
+- Confirmed the delete IS durable: after API delete, raw local R2 registry keys=[] (the earlier
+  "reappearance" was a miniflare WAL/reload hiccup, not the delete code; prod R2 is durable anyway).
+
+- TERMINAL COPY (prod): `LiveTerminal.jsx` already had ⌘C/right-click → `copyText(getSelection())`,
+  but (a) it was never deployed and (b) inside Claude Code's TUI mouse-reporting swallows drags so no
+  selection forms → copy got nothing. Added a **⧉ Copy button** in the controls panel that copies the
+  selection OR, when there's none, the visible screen (`viewportText()` reads buffer rows) — always
+  puts real text on the clipboard, mobile + desktop. Added a hint to hold ⌥/Shift to select inside a
+  menu. NOT eyeball-tested in a browser (background job) — deployed + build-verified only.
+- DEPLOYED TO PROD (2026-07-09): `npm run deploy` → https://b47e0f57.coursework-5lg.pages.dev (branch
+  main = production; coursework.kitbord.com). This release shipped EVERYTHING pending: admin console
+  (/admin), dev-cohort flag + delete, status reconciliation, terminal copy + mobile controls, Phase-I
+  local-dev fixes. Verified 200 + functions respond on the pages.dev alias. AUTHZ_ENFORCE still unset
+  (default-deny stays dark); /admin gated by real Access JWT (DEV_ADMIN_EMAIL is local-only, not deployed).
+
+- DAEMON PROVEN LIVE (2026-07-09): provisioning daemon installed on droplet + verified end-to-end —
+  invited "acme" from prod /admin → daemon created the account → status reconciled provisioning→active
+  (confirmed via prod /acme/api/student → "active"). The full invite→provision→active loop works.
+- CLIENT UNKNOWN-SLUG RESOLUTION (was deferred): registry-invited learners (e.g. acme) hit `<Splash/>`
+  because the CLIENT resolved slugs from the STATIC src/students.js (code seeds only). Fixed: new
+  `GET /<slug>/api/student` (registry-aware, middleware-primed) + shared `src/hooks/useStudent.js`
+  (static map first, server fallback) used in StudentRoute (App.jsx), InterviewView, SessionView.
+  Also: `findCourseTemplate()` in _students.js so an invited learner inherits the replicated course's
+  mdFile/defaultArc/title (keeps own r2Prefix) — acme now loads zachary-noob-to-ai-entrepreneur.md.
+  learners.js no longer defaults courseTitle to the slug (lets the template title win). Deployed +
+  verified on prod (/acme/api/student resolves; unknown slug 404s). Hard-reload to see /acme render.
+
 ## In Progress
-- (none) — Phase I + all UI fixes deployed. Phase II-1/II-2 shipped (authz dark, registry overlay).
+- (none) — all pending work deployed to prod. Still UNCOMMITTED in git (deploy builds from the working
+  tree, not a commit). Next: commit the accumulated work (getting large); optional stable workshop tunnel.
 
 ## Next Session Starts Here
 - COMMIT the Phase I + workshop-isolation work (new `workshop/` dir, `functions/_workshopToken.js`,
