@@ -74,3 +74,10 @@ export const STUDENTS = {
 export function getStudent(slug) {
   return STUDENTS[slug] || null
 }
+
+// The name to address the learner by: their chosen nickname if set, else account
+// name. Mirrors displayNameOf() in functions/_students.js — nothing addresses a
+// learner by a hardcoded name. (Server /api/student also returns `displayName`.)
+export function displayNameOf(student) {
+  return (student?.displayName || student?.nickname || student?.name || '').trim() || 'there'
+}

@@ -127,6 +127,8 @@ function EditLearner({ detail, onSaved }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(detail.name || '')
   const [email, setEmail] = useState(detail.email || '')
+  const [nickname, setNickname] = useState(detail.nickname || '')
+  const [pronouns, setPronouns] = useState(detail.pronouns || '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
@@ -137,7 +139,8 @@ function EditLearner({ detail, onSaved }) {
       const res = await fetch(`/api/admin/learner/${detail.slug}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name, email }),
+        // nickname/pronouns sent always (empty string clears the override server-side).
+        body: JSON.stringify({ name, email, nickname, pronouns }),
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
@@ -162,12 +165,46 @@ function EditLearner({ detail, onSaved }) {
     <div className="flex flex-wrap items-center gap-2">
       <input value={name} onChange={(e) => setName(e.target.value)} placeholder="name" className="rounded border border-rule px-2 py-1 text-[13px] outline-none focus:border-accent" />
       <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email" className="rounded border border-rule px-2 py-1 text-[13px] outline-none focus:border-accent" />
+      <input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="nickname (optional)" title="What the course calls them — defaults to their name" className="rounded border border-rule px-2 py-1 text-[13px] outline-none focus:border-accent" />
+      <select value={pronouns} onChange={(e) => setPronouns(e.target.value)} title="Defaults to neutral they/them" className="rounded border border-rule px-2 py-1 text-[13px] outline-none focus:border-accent">
+        <option value="">they (default)</option>
+        <option value="she">she/her</option>
+        <option value="he">he/him</option>
+        <option value="they">they/them</option>
+      </select>
       <button onClick={save} disabled={saving} className="rounded bg-accent px-2 py-1 text-[12px] text-white disabled:opacity-50">
         {saving ? '…' : 'Save'}
       </button>
       <button onClick={() => setEditing(false)} className="text-[12px] text-muted hover:text-ink">Cancel</button>
       {err && <span className="text-[12px] text-red-600">{err}</span>}
     </div>
+  )
+}
+
+// Fully remove a registry learner (wipes VM account + registry entry + access grant).
+// Only offered for registry learners; code seeds are permanent.
+function DeleteLearner({ detail, onDeleted }) {
+  const [busy, setBusy] = useState(false)
+  if (!detail.fromRegistry) return null
+  async function del() {
+    if (!confirm(`Delete ${detail.name} (/${detail.slug})? This wipes their VM account, registry entry, and access grant. Cannot be undone.`)) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/admin/learner/${detail.slug}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        alert(`Error: ${d.error || res.status}`)
+        return
+      }
+      onDeleted?.()
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button onClick={del} disabled={busy} className="text-[12px] text-red-600 hover:underline disabled:opacity-50">
+      {busy ? 'Deleting…' : 'Delete'}
+    </button>
   )
 }
 
@@ -179,6 +216,7 @@ function StatusPill({ status }) {
     s === 'active' ? 'bg-green-100 text-green-700'
     : s === 'suspended' ? 'bg-amber-100 text-amber-700'
     : s === 'provisioning' ? 'bg-blue-100 text-blue-700'
+    : s === 'error' ? 'bg-red-100 text-red-700'
     : 'bg-gray-100 text-gray-600'
   return <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${cls}`}>{s}</span>
 }
@@ -206,23 +244,41 @@ function ProvisionControls({ detail, onChanged }) {
       setBusy('')
     }
   }
+  const errored = p.status?.state === 'error'
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-rule bg-white p-3">
-      <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">VM</span>
-      <span className="text-[12px] text-ink">{detail.workshopUser ? `user: ${detail.workshopUser}` : 'no VM user'}</span>
-      <StatusPill status={st} />
-      {p.queued && <span className="text-[11px] text-muted">⏳ action queued…</span>}
-      {p.status?.state && <span className="text-[11px] text-muted">daemon: {p.status.state}</span>}
-      <div className="ml-auto flex gap-2">
-        {st === 'suspended' ? (
-          <button className={BTN} disabled={!!busy} onClick={() => act('resume')}>Resume</button>
-        ) : (
-          <button className={BTN} disabled={!!busy} onClick={() => act('suspend')}>Suspend</button>
-        )}
-        <button className={`${BTN} !text-red-600 hover:!border-red-400`} disabled={!!busy} onClick={() => act('deprovision')}>
-          Deprovision
-        </button>
+    <div className="flex flex-col gap-2 rounded-lg border border-rule bg-white p-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">VM</span>
+        <span className="text-[12px] text-ink">{detail.workshopUser ? `user: ${detail.workshopUser}` : 'no VM user'}</span>
+        <StatusPill status={st} />
+        {p.queued && <span className="text-[11px] text-muted">⏳ action queued — waiting on the daemon…</span>}
+        {p.status?.state && !errored && <span className="text-[11px] text-muted">daemon: {p.status.state}</span>}
+        <div className="ml-auto flex gap-2">
+          {errored && (
+            <button className={BTN} disabled={!!busy} onClick={() => act('create')}>
+              {busy === 'create' ? 'Retrying…' : 'Retry provisioning'}
+            </button>
+          )}
+          {st === 'suspended' ? (
+            <button className={BTN} disabled={!!busy} onClick={() => act('resume')}>Resume</button>
+          ) : (
+            <button className={BTN} disabled={!!busy} onClick={() => act('suspend')}>Suspend</button>
+          )}
+          <button className={`${BTN} !text-red-600 hover:!border-red-400`} disabled={!!busy} onClick={() => act('deprovision')}>
+            Deprovision
+          </button>
+        </div>
       </div>
+      {errored && (
+        <p className="rounded-md bg-red-50 px-2 py-1 text-[11px] text-red-700">
+          Provisioning failed{p.status.detail ? `: ${p.status.detail}` : ''}
+        </p>
+      )}
+      {!p.queued && !p.status && st === 'provisioning' && (
+        <p className="text-[11px] text-muted">
+          Requested, but no daemon result yet — the droplet provisioning daemon may not be running.
+        </p>
+      )}
     </div>
   )
 }
@@ -236,8 +292,11 @@ function InviteForm({ courses, onCreated }) {
   const [slug, setSlug] = useState('')
   const [slugTouched, setSlugTouched] = useState(false)
   const [email, setEmail] = useState('')
+  const [nickname, setNickname] = useState('')
+  const [pronouns, setPronouns] = useState('')
   const [courseSlug, setCourseSlug] = useState(courses[0]?.courseSlug || '')
   const [vmUser, setVmUser] = useState('')
+  const [dev, setDev] = useState(false)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState(null)
   const [err, setErr] = useState('')
@@ -251,13 +310,13 @@ function InviteForm({ courses, onCreated }) {
       const res = await fetch('/api/admin/learners', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name, slug, email, courseSlug, courseTitle: course?.courseTitle, vmUser: vmUser || slug }),
+        body: JSON.stringify({ name, slug, email, nickname, pronouns, courseSlug, courseTitle: course?.courseTitle, vmUser: vmUser || slug, dev }),
       })
       const d = await res.json()
       if (!res.ok) throw new Error(d.error || res.status)
       setResult(d)
       onCreated?.()
-      setName(''); setSlug(''); setSlugTouched(false); setEmail(''); setVmUser('')
+      setName(''); setSlug(''); setSlugTouched(false); setEmail(''); setNickname(''); setPronouns(''); setVmUser(''); setDev(false)
     } catch (e) {
       setErr(String(e.message))
     } finally {
@@ -277,12 +336,23 @@ function InviteForm({ courses, onCreated }) {
         <input value={name} onChange={(e) => { setName(e.target.value); if (!slugTouched) setSlug(autoSlug(e.target.value)) }} placeholder="Name" className="rounded border border-rule px-2 py-1 text-[13px] outline-none focus:border-accent" />
         <input value={slug} onChange={(e) => { setSlug(e.target.value); setSlugTouched(true) }} placeholder="slug (url)" className="rounded border border-rule px-2 py-1 font-mono text-[13px] outline-none focus:border-accent" />
         <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email (for access grant)" className="rounded border border-rule px-2 py-1 text-[13px] outline-none focus:border-accent" />
+        <input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="nickname (optional — what the course calls them)" className="rounded border border-rule px-2 py-1 text-[13px] outline-none focus:border-accent" />
+        <select value={pronouns} onChange={(e) => setPronouns(e.target.value)} title="Defaults to neutral they/them" className="rounded border border-rule px-2 py-1 text-[13px] outline-none focus:border-accent">
+          <option value="">pronouns: they/them (default)</option>
+          <option value="she">she/her</option>
+          <option value="he">he/him</option>
+          <option value="they">they/them</option>
+        </select>
         <select value={courseSlug} onChange={(e) => setCourseSlug(e.target.value)} className="rounded border border-rule px-2 py-1 text-[13px] outline-none focus:border-accent">
           {courses.map((c) => (
             <option key={c.courseSlug} value={c.courseSlug}>{c.courseTitle || c.courseSlug}</option>
           ))}
         </select>
         <input value={vmUser} onChange={(e) => setVmUser(e.target.value)} placeholder={`vm user (default: ${slug || 'slug'})`} className="rounded border border-rule px-2 py-1 font-mono text-[13px] outline-none focus:border-accent" />
+        <label className="flex items-center gap-2 text-[13px] text-ink">
+          <input type="checkbox" checked={dev} onChange={(e) => setDev(e.target.checked)} />
+          Dev user <span className="text-[11px] text-muted">(throwaway — grouped separately, one-click delete)</span>
+        </label>
         <div className="flex items-center gap-2">
           <button onClick={submit} disabled={busy} className="rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50">
             {busy ? 'Inviting…' : 'Invite'}
@@ -301,7 +371,7 @@ function InviteForm({ courses, onCreated }) {
   )
 }
 
-function LearnerDetail({ slug, onEdited }) {
+function LearnerDetail({ slug, onEdited, onDeleted }) {
   const [detail, setDetail] = useState(null)
   const [err, setErr] = useState('')
 
@@ -322,6 +392,7 @@ function LearnerDetail({ slug, onEdited }) {
       <div>
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-lg font-semibold text-ink">{detail.name}</h2>
+          {detail.dev && <span className="rounded bg-purple-100 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-purple-700">dev</span>}
           <EditLearner
             detail={detail}
             onSaved={() => {
@@ -329,6 +400,7 @@ function LearnerDetail({ slug, onEdited }) {
               onEdited?.()
             }}
           />
+          <DeleteLearner detail={detail} onDeleted={onDeleted} />
         </div>
         <p className="font-mono text-[12px] text-muted">
           /{detail.slug} · {detail.courseTitle || detail.courseSlug}
@@ -384,6 +456,32 @@ function LearnerDetail({ slug, onEdited }) {
   )
 }
 
+function RosterRow({ l, selected, onSelect }) {
+  return (
+    <li>
+      <button
+        onClick={() => onSelect(l.slug)}
+        className={`w-full rounded-lg border px-3 py-2 text-left transition ${
+          selected === l.slug ? 'border-accent bg-accent-soft' : 'border-rule bg-white hover:border-accent'
+        }`}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-medium text-ink">{l.name}</span>
+          <span className="font-mono text-[10px] text-muted">/{l.slug}</span>
+        </div>
+        <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted">
+          <span>{l.courseTitle || l.courseSlug || '—'}</span>
+          {l.dev && <span className="rounded bg-purple-100 px-1 text-[9px] uppercase text-purple-700">dev</span>}
+          {!l.dev && l.fromRegistry && <span className="rounded bg-accent-soft px-1 text-[9px] uppercase text-accent">registry</span>}
+          {l.status && l.status !== 'active' && (
+            <span className="rounded bg-amber-100 px-1 text-[9px] uppercase text-amber-700">{l.status}</span>
+          )}
+        </div>
+      </button>
+    </li>
+  )
+}
+
 export default function AdminView() {
   const [learners, setLearners] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -428,35 +526,41 @@ export default function AdminView() {
               onCreated={loadRoster}
             />
           )}
-          <ul className="flex flex-col gap-1.5">
-            {learners?.map((l) => (
-              <li key={l.slug}>
-                <button
-                  onClick={() => setSelected(l.slug)}
-                  className={`w-full rounded-lg border px-3 py-2 text-left transition ${
-                    selected === l.slug ? 'border-accent bg-accent-soft' : 'border-rule bg-white hover:border-accent'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-ink">{l.name}</span>
-                    <span className="font-mono text-[10px] text-muted">/{l.slug}</span>
+          {learners && (
+            <>
+              <ul className="flex flex-col gap-1.5">
+                {learners.filter((l) => !l.dev).map((l) => (
+                  <RosterRow key={l.slug} l={l} selected={selected} onSelect={setSelected} />
+                ))}
+              </ul>
+              {learners.some((l) => l.dev) && (
+                <>
+                  <div className="mt-4 mb-1.5 flex items-center gap-2 px-1 font-mono text-[10px] uppercase tracking-[0.16em] text-muted">
+                    Dev users
+                    <span className="text-purple-400">·</span>
+                    <span className="text-[10px] normal-case tracking-normal">throwaway</span>
                   </div>
-                  <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted">
-                    <span>{l.courseTitle || l.courseSlug || '—'}</span>
-                    {l.fromRegistry && <span className="rounded bg-accent-soft px-1 text-[9px] uppercase text-accent">registry</span>}
-                    {l.status && l.status !== 'active' && (
-                      <span className="rounded bg-amber-100 px-1 text-[9px] uppercase text-amber-700">{l.status}</span>
-                    )}
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
+                  <ul className="flex flex-col gap-1.5">
+                    {learners.filter((l) => l.dev).map((l) => (
+                      <RosterRow key={l.slug} l={l} selected={selected} onSelect={setSelected} />
+                    ))}
+                  </ul>
+                </>
+              )}
+            </>
+          )}
         </aside>
 
         <main className="min-w-0 flex-1">
           {selected ? (
-            <LearnerDetail slug={selected} onEdited={loadRoster} />
+            <LearnerDetail
+              slug={selected}
+              onEdited={loadRoster}
+              onDeleted={() => {
+                setSelected(null)
+                loadRoster()
+              }}
+            />
           ) : (
             <p className="text-[13px] text-muted">Select a learner to see progress and transcripts.</p>
           )}

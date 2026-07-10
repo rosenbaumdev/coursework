@@ -16,6 +16,7 @@ import { jsonResponse, errorResponse } from '../../../_shared.js'
 import { getStudent, getCourse } from '../../../_students.js'
 import {
   getSessionPack,
+  personalizePack,
   hasLiveWorkshop,
   loadLesson,
   loadGlance,
@@ -36,7 +37,7 @@ export async function onRequestPost({ params, env, request }) {
   const dayId = String(body?.day ?? '1')
   const tail = String(body?.tail || '')
 
-  const pack = getSessionPack(course.slug, dayId)
+  const pack = personalizePack(getSessionPack(course.slug, dayId), student)
   // No workshop today, or nothing to look at → nothing for the Observer to do.
   if (!pack || !hasLiveWorkshop(pack) || !tail.trim()) return jsonResponse(QUIET)
 

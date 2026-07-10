@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { displayNameOf } from '../students.js'
 
 const TIME_FMT = new Intl.DateTimeFormat('en-US', {
   month: 'short',
@@ -41,7 +42,7 @@ export default function NotesThread({ notes, student, isDAD, onAdd }) {
 
   const author = isDAD ? 'dad' : 'student'
   const placeholder = isDAD
-    ? `Leave ${student.name} some feedback…`
+    ? `Leave ${displayNameOf(student)} some feedback…`
     : 'What happened today? What got hard?'
 
   return (
@@ -53,7 +54,7 @@ export default function NotesThread({ notes, student, isDAD, onAdd }) {
           {notes.map((note) => (
             <li key={note.id} className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
-                <AuthorPill author={note.author} studentName={student.name} />
+                <AuthorPill author={note.author} studentName={displayNameOf(student)} />
                 <span className="font-mono text-[11px] text-muted">
                   {formatTimestamp(note.timestamp)}
                 </span>

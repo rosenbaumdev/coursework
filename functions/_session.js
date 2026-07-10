@@ -53,6 +53,7 @@ import {
 } from './_sessionPacks.js'
 import { callAnthropic, readJSON, writeJSON } from './_turnCore.js'
 import { ensureAsk } from './_usher.js'
+import { displayNameOf, resolvePronouns } from './_students.js'
 
 // Usher re-exports so the session endpoints import everything from here.
 export { resolveChips, looksAnswerable } from './_usher.js'
@@ -135,6 +136,32 @@ export function injectLiveSurfaces(directive, env, student) {
       viewerUrl: withUserRoute(viewerBase, user, true),
     },
   }
+}
+
+// Deep-copy `value`, replacing the {{name}} token in every string with `name`.
+function substituteName(value, name) {
+  if (typeof value === 'string') return value.includes('{{name}}') ? value.replaceAll('{{name}}', name) : value
+  if (Array.isArray(value)) return value.map((v) => substituteName(v, name))
+  if (value && typeof value === 'object') {
+    const out = {}
+    for (const k of Object.keys(value)) out[k] = substituteName(value[k], name)
+    return out
+  }
+  return value
+}
+
+// Per-request personalization of a (shared, cached) pack so nothing assumes a
+// specific learner's name or gender. Resolves the learner's pronoun set (neutral
+// singular 'they' unless a pronoun is genuinely known) and substitutes the
+// {{name}} token — in masterPrompt, opener/entry, and every canvas string the
+// learner will see — with their display name (nickname || account name). The
+// cached pack stays name-agnostic; this returns a fresh, personalized copy.
+// Call it right after getSessionPack in any learner-facing request.
+export function personalizePack(pack, student) {
+  if (!pack) return pack
+  const copy = substituteName(pack, displayNameOf(student))
+  copy.pronouns = resolvePronouns(student)
+  return copy
 }
 
 // Same model rationale as the interview: the per-turn reasoning pass is what
@@ -231,7 +258,8 @@ export async function saveLesson(env, session) {
 export function newLesson(student, course, studentSlug, pack) {
   return {
     v: 2,
-    studentName: student.name,
+    // The name the course addresses them by: nickname if set, else account name.
+    studentName: displayNameOf(student),
     studentSlug,
     courseSlug: course.slug,
     courseTitle: course.title,

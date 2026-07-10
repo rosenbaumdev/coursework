@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { displayNameOf } from '../students.js'
 
 function buildPointerPrompt({ day, fetchUrl, studentName, courseTitle }) {
   return `You are leading Day ${day.id} of ${studentName}'s ${courseTitle}: "${day.title}".
@@ -83,7 +84,7 @@ export default function ClaudeLauncher({ day, student, course, prompts }) {
           const pointerPrompt = buildPointerPrompt({
             day,
             fetchUrl,
-            studentName: student.name,
+            studentName: displayNameOf(student),
             courseTitle: course.title,
           })
           return (

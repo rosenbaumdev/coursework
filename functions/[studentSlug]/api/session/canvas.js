@@ -15,7 +15,7 @@
 
 import { errorResponse, jsonResponse } from '../../../_shared.js'
 import { getStudent, getCourse } from '../../../_students.js'
-import { getSessionPack, loadLesson, resolveFigureDir, injectLiveSurfaces } from '../../../_session.js'
+import { getSessionPack, personalizePack, loadLesson, resolveFigureDir, injectLiveSurfaces } from '../../../_session.js'
 
 export async function onRequestPost({ params, env, request }) {
   const { studentSlug } = params
@@ -31,7 +31,7 @@ export async function onRequestPost({ params, env, request }) {
   }
 
   const dayId = String(body?.day ?? '1')
-  const pack = getSessionPack(course.slug, dayId)
+  const pack = personalizePack(getSessionPack(course.slug, dayId), student)
   if (!pack) return errorResponse('No session configured for this day', 404)
 
   const target = String(body?.target || '').trim()

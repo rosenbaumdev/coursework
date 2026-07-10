@@ -21,6 +21,7 @@ import {
 } from '../../../_turnCore.js'
 import {
   getSessionPack,
+  personalizePack,
   progressInfo,
   lessonKey,
   loadLesson,
@@ -176,7 +177,8 @@ export async function onRequestPost({ params, env, request }) {
     /* empty body is fine */
   }
   const dayId = String(body?.day ?? '1')
-  const pack = getSessionPack(course.slug, dayId)
+  // Personalize the shared pack for THIS learner (name token + pronouns).
+  const pack = personalizePack(getSessionPack(course.slug, dayId), student)
   if (!pack) return errorResponse('No session configured for this day', 404)
 
   if (body?.reset) {

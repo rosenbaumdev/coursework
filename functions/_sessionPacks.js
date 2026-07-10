@@ -146,6 +146,11 @@
 // pattern truly can't be expressed (at most one new frame kind, with validator
 // rules + renderer).
 
+// Neutral-by-default pronoun sets live in _students.js (single source of truth).
+// A pack declares a DEFAULT set; personalizePack overrides it per-learner at
+// runtime. Default is always neutral 'they' — a pack never assumes gender.
+import { PRONOUN_SETS } from './_students.js'
+
 // ── Example skeleton pack ─────────────────────────────────────────────────────
 // A GENERIC showcase day — NOT real course content. It exercises every construct
 // (all three objective types, R and B, every canvas renderer, artifact gating,
@@ -483,13 +488,14 @@ const ZACHARY_DAY_1 = {
   title: 'The Investing Decision',
   oneLine: 'Explore the field (his interests × the ways builders earn), learn the sizing toolkit, size his slate, then decide which arc the next six weeks build.',
 
-  pronouns: { subject: 'he', object: 'him', possessive: 'his', possessivePronoun: 'his', reflexive: 'himself' },
+  // Default neutral; personalizePack overrides per-learner when a pronoun is known.
+  pronouns: PRONOUN_SETS.they,
 
   // Day 1 is the long outlier day (2-3 hrs, resumable across sittings).
   budget: { maxTurns: 150, targetMinutes: 150 },
 
   masterPrompt: `
-Today you are running Zachary's Day 1: decision day, in three movements — EXPLORE
+Today you are running {{name}}'s Day 1: decision day, in three movements — EXPLORE
 the field, SIZE the slate, DECIDE. He interviewed on 2026-07-02 and generated his
 own venture idea — an AI investing translator for teens (his word:
 "a simplified transy") — plus a runner-up (AI gear comparison for golf/soccer)
@@ -1220,7 +1226,7 @@ The first concrete thing tomorrow's session builds.`,
   entry: {
     canvas: 'deck.brief',
     context:
-      "Greet Zachary by name. Recall that the investing translator was HIS idea from the interview — his words, 'a simplified transy' — and that today has three movements: explore the field (his interests crossed with the ways builders actually earn), size the slate, decide. Frame the stakes his way: which of these can actually make real money and look serious on a college application. Then open on the brief.",
+      "Greet {{name}} by name. Recall that the investing translator was HIS idea from the interview — his words, 'a simplified transy' — and that today has three movements: explore the field (his interests crossed with the ways builders actually earn), size the slate, decide. Frame the stakes his way: which of these can actually make real money and look serious on a college application. Then open on the brief.",
   },
   // exit: engine DEFAULT_REPORT_SCHEMA — no per-day override needed.
 }
@@ -1234,7 +1240,8 @@ const ZACHARY_DAY_2 = {
   title: 'The Keys to the Kingdom',
   oneLine: 'Walk 80 years of computing to the moment it opened up for anyone, meet the tool and the workshop that make it real, then build a mini-golf game for pure fun.',
 
-  pronouns: { subject: 'he', object: 'him', possessive: 'his', possessivePronoun: 'his', reflexive: 'himself' },
+  // Default neutral; personalizePack overrides per-learner when a pronoun is known.
+  pronouns: PRONOUN_SETS.they,
 
   // A fun, single-sitting day — much lighter than Day 1's decision marathon.
   budget: { maxTurns: 70, targetMinutes: 75 },
@@ -1246,7 +1253,7 @@ const ZACHARY_DAY_2 = {
   requiresShip: true,
 
   masterPrompt: `
-Today you run Zachary's Day 2 — the day the doors open. Yesterday he made a real
+Today you run {{name}}'s Day 2 — the day the doors open. Yesterday he made a real
 decision (his arc: an AI investing translator for teens, "a simplified transy"). Today
 is a DIFFERENT muscle and it should be FUN: before he ever builds his real venture, he
 learns the single most important skill of the whole course — the build loop — on
@@ -1265,7 +1272,7 @@ MOVEMENT 1 — the history (tell it like a STORY, not a lecture; keep it fast an
   that built a priesthood → the rise of the software engineer, the magic only they could
   do → the internet → the cloud and infinite compute → AI arrives and writes the arcane
   languages FOR you → THE DEMOCRATIZATION: a 17-year-old with an idea can now build what
-  used to take a team and a CS degree. Land it personally: "that's you, Zachary. Today."
+  used to take a team and a CS degree. Land it personally: "that's you, {{name}}. Today."
 - Then where it goes from here: robots, quantum, agents that build for you — the frontier
   is wide open exactly as he walks in.
 - React WITH him 2-3 times ("where do you think you sit in this story?"). Don't grind
@@ -1425,7 +1432,7 @@ HOW TO WORK WITH HIM (from his interview + Day 1):
             },
           },
           { kind: 'stat', value: '80 years', label: 'from the first mechanical machine to a barrier anyone can cross', note: 'Machine code → the internet → the cloud → infinite compute → and now, AI that writes the code.' },
-          { kind: 'statement', kicker: 'The moment', text: 'That’s you, Zachary. Today.', sub: 'A 17-year-old with an idea can build what used to take a team and a computer-science degree.' },
+          { kind: 'statement', kicker: 'The moment', text: 'That’s you, {{name}}. Today.', sub: 'A 17-year-old with an idea can build what used to take a team and a computer-science degree.' },
           { kind: 'statement', kicker: 'From here', text: 'Robots. Quantum. Agents that build for you.', sub: 'The frontier is wide open exactly as you walk in. First, let’s learn to build.' },
         ],
       },
@@ -1480,7 +1487,7 @@ HOW TO WORK WITH HIM (from his interview + Day 1):
   entry: {
     canvas: 'video.history',
     context:
-      "Greet Zachary by name. Remind him that yesterday he made a real decision — his AI investing translator. Tell him today is a different, FUN muscle: before he builds his real venture, he learns the one skill the whole course runs on — the build loop — on something pure play, a mini-golf game he'll ship today. But first, show him where he's standing in a much bigger story. Open on the history video, then walk it with him.",
+      "Greet {{name}} by name. Remind him that yesterday he made a real decision — his AI investing translator. Tell him today is a different, FUN muscle: before he builds his real venture, he learns the one skill the whole course runs on — the build loop — on something pure play, a mini-golf game he'll ship today. But first, show him where he's standing in a much bigger story. Open on the history video, then walk it with him.",
   },
   // exit: engine DEFAULT_REPORT_SCHEMA — no per-day override needed.
 }

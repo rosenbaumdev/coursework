@@ -1,5 +1,32 @@
 // Mirror of src/students.js for Pages Functions runtime. Keep in sync.
 
+// --- Learner address: name + pronouns ---------------------------------------
+// Nothing may assume a specific learner's name or gender. The name a course
+// addresses the learner by is EITHER their account name OR a nickname they've
+// set (admin-settable today; a learner-facing "persona instructions" surface is
+// Phase III). Pronouns default to NEUTRAL singular they — we never assume gender
+// and never prompt a learner to declare one; a pronoun set is used only when it
+// is genuinely known (admin-settable). Verb forms (be/have) keep singular "they"
+// grammatical alongside he/she in the prompt templates that read these.
+export const PRONOUN_SETS = {
+  they: { subject: 'they', object: 'them', possessive: 'their', possessivePronoun: 'theirs', reflexive: 'themselves', be: 'are', have: 'have' },
+  he: { subject: 'he', object: 'him', possessive: 'his', possessivePronoun: 'his', reflexive: 'himself', be: 'is', have: 'has' },
+  she: { subject: 'she', object: 'her', possessive: 'her', possessivePronoun: 'hers', reflexive: 'herself', be: 'is', have: 'has' },
+}
+
+// The name a course should address the learner by: their chosen nickname if set,
+// else their account name, else the slug as a last resort.
+export function displayNameOf(student) {
+  return (student?.nickname || student?.name || '').trim() || 'there'
+}
+
+// Resolve a learner's pronoun set. Unknown/unset → neutral they. Accepts a key
+// ('he'|'she'|'they') stored on the student; anything else falls back to neutral.
+export function resolvePronouns(student) {
+  const key = String(student?.pronouns || '').trim().toLowerCase()
+  return PRONOUN_SETS[key] || PRONOUN_SETS.they
+}
+
 export const STUDENTS = {
   jordan: {
     name: 'Jordan',
@@ -73,24 +100,44 @@ const REGISTRY_TTL_MS = 15_000
 let _merged = null
 let _mergedAt = 0
 
+// Find an existing code-seed course with this slug — the source of truth for a course's
+// content config (mdFile, defaultArc, title). An invited learner replicates a course by slug,
+// so they inherit its content file while keeping their OWN per-slug r2Prefix (isolated data).
+function findCourseTemplate(courseSlug) {
+  for (const s of Object.values(STUDENTS)) {
+    const c = s.courses?.find((c) => c.slug === courseSlug)
+    if (c) return c
+  }
+  return null
+}
+
 // A registry entry { name, email, courseSlug, courseTitle?, mdFile?, r2Prefix?,
-// mirrorPrefix?, defaultArc?, workshop?, status? } → the STUDENTS shape.
+// mirrorPrefix?, defaultArc?, workshop?, status?, nickname?, pronouns? } → the
+// STUDENTS shape. nickname/pronouns are how a course ADDRESSES the learner
+// (see displayNameOf/resolvePronouns) — never assumed, only used when set. Content fields
+// (mdFile/defaultArc/title) fall back to the replicated course's template so a new learner
+// gets real, loadable content without the invite having to carry them.
 function registryToStudent(slug, e) {
+  const tmpl = findCourseTemplate(e.courseSlug) || {}
+  const defaultArc = e.defaultArc ?? tmpl.defaultArc
   return {
     name: e.name || slug,
     email: e.email || null,
     status: e.status || 'active',
+    ...(e.nickname ? { nickname: e.nickname } : {}),
+    ...(e.pronouns ? { pronouns: e.pronouns } : {}),
     courses: [
       {
         slug: e.courseSlug,
-        title: e.courseTitle || e.courseSlug,
-        mdFile: e.mdFile || `${e.courseSlug}.md`,
+        title: e.courseTitle || tmpl.title || e.courseSlug,
+        mdFile: e.mdFile || tmpl.mdFile || `${e.courseSlug}.md`,
         r2Prefix: e.r2Prefix ?? `${slug}/`,
         mirrorPrefix: e.mirrorPrefix ?? `${slug}/`,
-        ...(e.defaultArc ? { defaultArc: e.defaultArc } : {}),
+        ...(defaultArc ? { defaultArc } : {}),
       },
     ],
     ...(e.workshop ? { workshop: e.workshop } : {}),
+    ...(e.dev ? { dev: true } : {}),
     fromRegistry: true,
   }
 }
@@ -122,6 +169,8 @@ function applyOverrides(student, reg) {
   if (reg.name) out.name = reg.name
   if (reg.email) out.email = reg.email
   if (reg.status) out.status = reg.status
+  if (reg.nickname) out.nickname = reg.nickname
+  if (reg.pronouns) out.pronouns = reg.pronouns
   return out
 }
 

@@ -28,6 +28,7 @@ import {
 } from './_turnCore.js'
 
 import { ensureAsk } from './_usher.js'
+import { displayNameOf } from './_students.js'
 
 export { getPack, focusObjective, requiredCounts, isComplete, progressInfo } from './_inventory.js'
 
@@ -82,8 +83,8 @@ export function buildEnvelope(session, pack) {
     ? `CURRENT FOCUS: ${focus.id} — ${focus.need}
 This is the next un-ticked required objective. Work toward capturing it now.`
     : `Every required objective is ticked. Move to wrap-up: play back a synthesis
-of ${name} in HIS words, let him correct it, ask what he didn't get to say,
-then close warmly.`
+of ${name} in THEIR OWN words, let them correct it, ask what they didn't get to
+say, then close warmly.`
 
   const notesBlock = dueNotes.length
     ? `\n\nEARLIER THREADS TO PICK UP NOW (you tabled these for this objective):\n${dueNotes
@@ -105,20 +106,20 @@ ${focusBlock}${notesBlock}
 HOW TO ADVANCE:
 - When an objective is genuinely, adequately captured, tick it by ending your
   message with:  [TICK: <id>]   (tick more than one at once: [TICK: id1, id2]).
-  Never tick a box you haven't actually covered through his real answers — a
+  Never tick a box you haven't actually covered through their real answers — a
   hollow tick corrupts the entire profile.
 - TICK WHEN CAPTURED — don't forget this. Ticking is how progress is recorded; a
   captured-but-un-ticked box STALLS the whole interview (you'll keep re-asking the
   same area). Always close the loop with a tick once a box is genuinely captured.
 - MOVE BRISKLY through the quick boxes — tick as soon as you have a clear answer,
-  don't over-dig: orient.ready (the moment he says go), know.handson, the know.map
+  don't over-dig: orient.ready (the moment they say go), know.handson, the know.map
   rating sweep (one area per short turn — just get know-it / kind-of / no-idea, it's
   a quiz not a deep dive), log.time, log.capital, work.stuck, work.completion.
 - SPEND THE REAL TIME on INTERESTS & DIRECTION — this is the heart, and where most
   of the 30-45 minutes should go: care.energy, care.depth, care.why, world.ai,
   arc.lean. Here go 2-4 exchanges deep before ticking — examples, "say more," "why,"
   reflect it back. Especially care.depth: mine the strongest interest for a maker's
-  angle, an audience, and a real problem — THEN tick. That's where his arc comes from.
+  angle, an audience, and a real problem — THEN tick. That's where their arc comes from.
 - Follow the inventory top-to-bottom as your spine, but if the conversation
   naturally covers a later box well, tick it too. Don't re-open an [x] box
   unless something genuinely new and better emerges.
@@ -132,14 +133,14 @@ DRIFT CONTROL — before you follow ANY tangent, ask yourself two questions:
         [TABLE: <that objective's id> :: <one-line note of the thread to revisit>]
       — and steer gently back to the current focus. That note is surfaced back
       to you when that objective becomes the focus.
-You are NOT here to map his entire psychology. You are here to tick THESE boxes
+You are NOT here to map their entire psychology. You are here to tick THESE boxes
 well. Reasonable, valuable drift is welcome — but only in service of a box.
 
 OTHER RULES:
 - Don't let it drift into general chitchat, unrelated tech support, or homework
   help. If ${name} goes off, answer briefly and warmly steer back.
 - Stay in your core tone: curious, never evaluative; reflect back real energy;
-  capture his exact words.
+  capture their exact words.
 - MULTIPLE-CHOICE SHORTCUTS — use these ACTIVELY; they are expected, not rare.
   This is a phone interview: a tap beats typing. Whenever the question you're
   asking has a small, discrete set of natural answers, END your message with:
@@ -154,10 +155,10 @@ OTHER RULES:
   EACH AS AN ACTUAL QUESTION the student can answer — end it with the scale, e.g.
   "Auth — the login/password system — know it, kind of, or no idea?". NEVER just
   describe a concept and stop (a bare statement like "Auth is how an app knows
-  it's you." leaves him nothing to answer and no chip to tap). Every turn ends on
+  it's you." leaves them nothing to answer and no chip to tap). Every turn ends on
   a real question. Don't bundle several items into one message.
-  NEVER use chips for the open-ended heart — what he cares about, his story, his
-  worldview, "say more about that." Those stay free-form; he can always type.
+  NEVER use chips for the open-ended heart — what they care about, their story, their
+  worldview, "say more about that." Those stay free-form; they can always type.
 - Control tags ([TICK], [TABLE], [SUGGESTED_REPLIES]) are backend-only: never
   explain them, and put them on their own line(s) at the very end of the message.
 `.trim()
@@ -182,16 +183,16 @@ ${reviewer} will read a summary of this profile afterward — not a transcript.
 Tell ${studentName} this plainly if it comes up. Don't be vague about it.
 
 YOUR ROLE. This is a one-time intake conversation. You are NOT ${studentName}'s
-day-to-day coach, and he experiences the program as one continuous thing — do NOT
+day-to-day coach, and they experience the program as one continuous thing — do NOT
 announce that "the interviewer" is a separate bot from "the course," and do NOT
 promise future personal contact ("me checking in," "I'll be here each day"). You won't
-be doing that. If he assumes you'll be working together throughout, don't break the
-fourth wall — reassure him there's structure set up to support him the whole way and
-that you're making sure it fits him, then continue. Refer to the program neutrally
+be doing that. If they assume you'll be working together throughout, don't break the
+fourth wall — reassure them there's structure set up to support them the whole way and
+that you're making sure it fits them, then continue. Refer to the program neutrally
 ("the course," "these 6 weeks," "the daily work").
 
-HOW MUCH SAY HE HAS (specific to this course — follow it exactly):
-${dynamic || 'Gather his preferences to understand him; the course structure is set by the program.'}
+HOW MUCH SAY THEY HAVE (specific to this course — follow it exactly):
+${dynamic || 'Gather their preferences to understand them; the course structure is set by the program.'}
 
 CORE BEHAVIORAL RULES — apply throughout:
 
@@ -291,7 +292,8 @@ export async function saveSession(env, session) {
 
 export function newSession(student, course, studentSlug, pack) {
   return {
-    studentName: student.name,
+    // The name we address them by: nickname if set, else account name.
+    studentName: displayNameOf(student),
     studentSlug,
     courseSlug: course.slug,
     courseTitle: course.title,
