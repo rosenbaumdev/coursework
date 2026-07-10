@@ -26,6 +26,57 @@ function ProgressBar({ ticked, total }) {
   )
 }
 
+// Completion state at a glance. A day is `completed` on either graceful early exit
+// (endedIncomplete — required objectives left unfinished) or sign-off; collapsing both
+// into one green "complete" pill hid the difference. Not-completed → in progress (no pill).
+function DayStatusBadge({ day }) {
+  if (!day.completed) return null
+  if (day.endedIncomplete) {
+    return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">ended early</span>
+  }
+  const label = day.signedOff ? 'signed off' : 'complete'
+  return <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">{label}</span>
+}
+
+// The full per-day objective checklist (every objective + tick state), grouped by section.
+// Collapsible so the day card stays scannable; open it to see exactly which boxes are ticked
+// without asking the AI. R = required, B = bonus.
+function ObjectiveBoard({ objectives }) {
+  const sections = []
+  for (const o of objectives) {
+    let s = sections.find((x) => x.name === o.section)
+    if (!s) sections.push((s = { name: o.section, items: [] }))
+    s.items.push(o)
+  }
+  const ticked = objectives.filter((o) => o.ticked).length
+  return (
+    <details className="mt-2 rounded-lg border border-rule bg-white px-3 py-2">
+      <summary className="cursor-pointer text-[12px] font-medium text-ink">
+        Objectives <span className="font-mono text-[11px] text-muted">({ticked}/{objectives.length})</span>
+      </summary>
+      <div className="mt-2 space-y-2">
+        {sections.map((s) => (
+          <div key={s.name}>
+            <div className="font-mono text-[10px] uppercase tracking-wide text-muted">{s.name}</div>
+            <ul className="mt-0.5 space-y-0.5">
+              {s.items.map((o) => (
+                <li key={o.id} className="text-[12px] leading-snug">
+                  <span className={`font-mono ${o.ticked ? 'text-green-700' : 'text-muted'}`}>
+                    {o.ticked ? '[x]' : '[ ]'}
+                  </span>{' '}
+                  <span className="font-mono text-[10px] text-muted">{o.required ? 'R' : 'B'}</span>{' '}
+                  <span className={o.ticked ? 'text-ink' : 'text-muted'}>{o.need}</span>
+                  {o.evidence && <span className="mt-0.5 block pl-8 text-[11px] italic text-muted">“{o.evidence}”</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </details>
+  )
+}
+
 // A day's transcript, rendered as the product's own chat stream (markdown bubbles).
 function TranscriptStream({ turns }) {
   const [open, setOpen] = useState(false)
@@ -429,9 +480,7 @@ function LearnerDetail({ slug, onEdited, onDeleted }) {
             </span>
             <div className="flex items-center gap-3">
               <ProgressBar ticked={d.ticked} total={d.totalRequired} />
-              {d.completed && (
-                <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">complete</span>
-              )}
+              <DayStatusBadge day={d} />
             </div>
           </div>
           {d.focus && <p className="mt-1 text-[12px] text-muted">Focus: {d.focus}</p>}
@@ -447,6 +496,7 @@ function LearnerDetail({ slug, onEdited, onDeleted }) {
               ))}
             </ul>
           )}
+          {d.objectives?.length > 0 && <ObjectiveBoard objectives={d.objectives} />}
           <div className="mt-2">
             <TranscriptStream turns={d.transcript} />
           </div>

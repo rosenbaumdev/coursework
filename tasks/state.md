@@ -1,5 +1,33 @@
 # Coursework Tracker — Session State
-Last updated: 2026-07-09 (names/pronouns key off account, not hardcoded)
+Last updated: 2026-07-09 (admin progress display + ask-AI objectives; dev-first clarified)
+
+## Completed This Session (admin "12/18 but complete" ambiguity + ask-AI objective list)
+- DIAGNOSIS (answer to "how is 12/18 but complete possible?"): NOT a bug, NOT an ask-AI
+  hallucination, NOT missing objectives. Zachary's real Day-1 record is a GRACEFUL EARLY EXIT —
+  `{completed:true, endedIncomplete:true, signedOff:null}`, 12/18 REQUIRED ticked (13 incl. 1 bonus).
+  Two display/context gaps hid the truth: (a) admin collapsed complete/ended-early into one green
+  pill; (b) ask.js never fed the objective board, so the model truthfully couldn't list them.
+- FIXES (display/context only — no engine change):
+  1. `_sessionPacks.js`: new `objectiveBoardData(pack, state)` — structured twin of
+     renderObjectiveBoard (section/id/need/type/required/ticked/evidence).
+  2. `api/admin/learner/[slug].js` GET: each day now returns `endedIncomplete`, `totalObjectives`,
+     and `objectives[]` (the board).
+  3. `api/admin/ask.js`: appends `renderObjectiveBoard()` + a precise status line
+     (CLOSED-ended-early / COMPLETED-signed-off / COMPLETED) to each day's context.
+  4. `AdminView.jsx`: `DayStatusBadge` (amber "ended early" vs green "signed off"/"complete" vs
+     none) + collapsible `ObjectiveBoard` (per-section [x]/[ ] checklist, R/B tag, evidence line).
+- VERIFIED on jserver:8788 (local miniflare R2, data-isolated from prod): seeded a synthetic Day-1
+  lesson from the CURRENT pack (12/18 req, 20 total, completed+endedIncomplete). `GET /api/admin/
+  learner/zachary` returned ticked 12/18, totalObjectives 20, endedIncomplete true, 20-item board
+  (13 ticked). `POST /api/admin/ask` enumerated all 20 objectives, split done/not-done, and called
+  it "NOT fully finished — ended early." `npx vite build` clean. Local seed deleted after.
+  NOT browser-rendered (bg job) — UI wired to the verified data contract + build passes.
+- DEV-FIRST CLARIFIED: "dev" = local `npm run dev:full` on jserver:8788, which uses a LOCAL
+  miniflare R2 (no `--remote`) → already data-isolated from prod. Standing loop: edit → verify on
+  8788 → commit → `npm run deploy`. Git hygiene DEFERRED: prod runs the `learner-naming-and-
+  isolation` branch lineage; local `main` (f02e5a6) is 5 commits stale — fast-forward later.
+
+## Completed Prior Session (names/pronouns key off account, not hardcoded)
 
 ## Completed This Session (names/pronouns de-assumption — DEPLOYED TO PROD, still uncommitted)
 - DEPLOYED 2026-07-09 (branch main = prod, coursework.kitbord.com). VERIFIED LIVE via prod alias

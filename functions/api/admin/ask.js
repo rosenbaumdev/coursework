@@ -6,7 +6,7 @@ import { requireAdmin } from '../../_access.js'
 import { jsonResponse, errorResponse } from '../../_shared.js'
 import { getStudent, getCourse } from '../../_students.js'
 import { loadLesson, loadGlance, SESSION_MODEL, SESSION_EFFORT } from '../../_session.js'
-import { getSessionPack, progressInfo } from '../../_sessionPacks.js'
+import { getSessionPack, progressInfo, renderObjectiveBoard } from '../../_sessionPacks.js'
 import { callAnthropic } from '../../_turnCore.js'
 
 const MAX_CONTEXT_CHARS = 40_000
@@ -54,10 +54,20 @@ export async function onRequestPost({ request, env }) {
     const pack = getSessionPack(courseSlug, dayId)
     const prog = pack ? progressInfo(pack, lesson.inventoryState) : { ticked: 0, totalRequired: 0 }
     const glance = await loadGlance(env, slug, courseSlug, dayId)
+    const status = lesson.completed
+      ? lesson.endedIncomplete
+        ? ' — CLOSED (ended early, required objectives unfinished)'
+        : lesson.signedOff
+        ? ' — COMPLETED (signed off)'
+        : ' — COMPLETED'
+      : ''
     const lines = [
       `### Day ${dayId} — ${lesson.dayTitle || pack?.title || ''}`,
-      `progress: ${prog.ticked}/${prog.totalRequired} objectives${lesson.completed ? ' — COMPLETED' : ''}`,
+      `progress: ${prog.ticked}/${prog.totalRequired} required objectives${status}`,
     ]
+    // The full objective board (every objective + tick state) so answers can enumerate
+    // exactly what was/wasn't done — otherwise the model only sees the "X/Y" number.
+    if (pack) lines.push('', renderObjectiveBoard(pack, lesson.inventoryState), '')
     if (glance?.situation) lines.push(`terminal read: ${glance.situation}`)
     if (lesson.parkingLot?.length) {
       lines.push('parking lot / feedback:')

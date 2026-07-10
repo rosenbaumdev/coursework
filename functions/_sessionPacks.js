@@ -1911,6 +1911,27 @@ export function renderObjectiveBoard(pack, state, focusId) {
   return lines.join('\n')
 }
 
+// Structured twin of renderObjectiveBoard — same section walk, but returns per-objective
+// data (not markdown) so the admin UI can render a clean checklist. `evidence` is the raw
+// logged quote (or null). Ordered document-order within each section, sections in pack order.
+export function objectiveBoardData(pack, state) {
+  const rows = []
+  for (const s of pack.sections) {
+    for (const o of s.objectives) {
+      rows.push({
+        section: s.name,
+        id: o.id,
+        need: o.need,
+        type: o.type,
+        required: Boolean(o.required),
+        ticked: Boolean(state?.[o.id]?.ticked),
+        evidence: state?.[o.id]?.evidence ?? null,
+      })
+    }
+  }
+  return rows
+}
+
 // --- pack validation (author-time guardrail; run in tests + engine boot) ---
 
 // Canvas types the client actually renders (src/components/session/canvas/*).

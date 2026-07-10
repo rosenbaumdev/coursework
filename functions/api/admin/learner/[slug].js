@@ -4,7 +4,7 @@ import { requireAdmin, loadGrants, saveGrants } from '../../../_access.js'
 import { jsonResponse, errorResponse } from '../../../_shared.js'
 import { STUDENTS, getStudent, getCourse, loadRegistry, saveRegistry } from '../../../_students.js'
 import { loadLesson, loadGlance } from '../../../_session.js'
-import { getSessionPack, progressInfo } from '../../../_sessionPacks.js'
+import { getSessionPack, progressInfo, objectiveBoardData } from '../../../_sessionPacks.js'
 import { provisionState, enqueueProvision, VM_USER_RE, reconcileStatus, isTerminalStatus } from '../../../_provision.js'
 
 // POST /api/admin/learner/:slug  { name?, email?, status?, nickname?, pronouns? } → edit
@@ -121,10 +121,13 @@ export async function onRequestGet({ request, env, params }) {
       dayTitle: lesson.dayTitle || pack?.title || `Day ${dayId}`,
       ticked: prog.ticked,
       totalRequired: prog.totalRequired,
+      totalObjectives: pack ? pack.objectives.length : prog.totalRequired,
       focus: prog.focus,
       seq: lesson.seq || 0,
       completed: Boolean(lesson.completed),
+      endedIncomplete: Boolean(lesson.endedIncomplete),
       signedOff: Boolean(lesson.signedOff),
+      objectives: pack ? objectiveBoardData(pack, lesson.inventoryState) : [],
       updatedAt: lesson.updatedAt || null,
       parkingLot: lesson.parkingLot || [],
       situation: glance?.situation || null,
