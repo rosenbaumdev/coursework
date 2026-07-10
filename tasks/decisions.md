@@ -1,5 +1,24 @@
 # Architectural Decisions
 
+## Dev → Commit → Release loop + prod→dev R2 sync — 2026-07-09
+**What:** Codified the standing workflow (also in CLAUDE.md `## Run` + auto-memory): (1) DEV on
+jserver:8788 via `npm run dev:full` (local miniflare R2, isolated); (2) `npm run sync:dev`
+[`-- --assets`] snapshots prod R2 → local so features are tested against REAL learner data in
+isolation; (3) VERIFY on :8788; (4) COMMIT; (5) `npm run deploy` (branch main = production). Never
+iterate in prod (live learners). New tool: `scripts/sync-prod-to-dev.mjs`.
+**Why:** Jonathan repeatedly flagged accidental prod-iteration. Local dev was isolated but *empty*,
+so real-data verification used to force a deploy. The sync removes that reason — real data is now
+local — making deploys deliberate releases, not debugging steps.
+**How the sync reads prod:** Cloudflare REST R2 API (list `…/buckets/{b}/objects`, fetch
+`…/objects/{key}`) authed by `~/.coursework-cf-token`, writing via getPlatformProxy LOCAL bindings.
+**Alternatives considered:** (a) getPlatformProxy *remote* bindings — rejected: they need a Workers
+edge-preview perm the token lacks and fail OPEN to stale local data (shipped a false "sync" first;
+caught via prod-vs-dev screenshots). (b) rclone + minted R2 S3 creds — heavier, extra credential to
+manage; REST API needs nothing new. (c) `wrangler r2 object get --remote` per key — works but has no
+list command and spawns a process per object. **Confidence:** 90% — REST list/get proven; only
+customMetadata isn't carried (irrelevant for current lessons/profiles).
+**LESSON:** verify a mirror against the SOURCE, never "destination has data." See tasks/lessons.md.
+
 ## Per-learner isolation enforced (AUTHZ_ENFORCE flip) — 2026-07-09
 **What:** Turned on app-side default-deny (`AUTHZ_ENFORCE="1"` in wrangler.toml [vars]). `_middleware.js`
 gates every `/<slug>/(api|files)/*` to the owning learner (email→slug grant in R2 admin/access.json) and

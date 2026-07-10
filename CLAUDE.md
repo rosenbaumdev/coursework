@@ -1,5 +1,12 @@
 # Jordan's Coursework Tracker — CLAUDE.md
-*Last updated: 2026-05-25 — phase 4 (public access + claude.ai launcher)*
+*Last updated: 2026-07-09 — dev→commit→release loop + prod→dev sync*
+
+> **⚠️ Architecture has moved on.** The app is now a **multi-tenant, fully-serverless Cloudflare
+> Pages app** (Pages Functions + R2; AI "Director" session engine; per-path learners under
+> `coursework.kitbord.com/<slug>`). The Express server, `cloudflared` tunnel, `storage/` filesystem,
+> `/dad` routes, and localStorage-only tracker described in the older sections below are **retired** —
+> treat them as historical. Current truth: `tasks/decisions.md`, `tasks/state.md`, and the Claude
+> auto-memory. **Read the `## Run` section for the current dev→commit→release loop.**
 
 ---
 
@@ -25,6 +32,7 @@ Full PRD: `docs/PRD.md` — read it before touching anything structural.
 - **Plan threshold:** touching 3+ files, or any structural decision → write plan to `tasks/todo.md` first, then execute.
 - **Bug fixes:** fully autonomous. Fix it, prove it works, document what you did.
 - **Default posture:** complete implementations only. No stubs, no TODOs left in place, no half-wired components.
+- **Follow the Dev → Commit → Release loop (see `## Run`). NEVER iterate directly in prod — it has live learners.** Change → verify on jserver:8788 (against real data via `npm run sync:dev`) → commit → `npm run deploy`. Deploys are deliberate releases, not per-change.
 
 ---
 
@@ -240,13 +248,37 @@ coursework/
   tailwind.config.js
 ```
 
-## Run
+## Run — the Dev → Commit → Release loop
 
-- **Production (the actual deploy on jserver):** `npm run start` (= `npm run build && npm run server`). Express on port 4174 (override with `PORT=`).
-- **Public access:** start cloudflared tunnel with `cloudflared tunnel --protocol http2 run --token <TOKEN>`. Tunnel token in CF dashboard. URL: https://coursework.rosenbaum.us.
-- **Dev with HMR:** `npm run server` in one terminal, `npm run dev` in another. Vite proxies `/api` + `/files` to the Express server.
-- **Asset CMS:** `/dad/files` for the full file manager, or `/dad` for per-day inline uploads.
-- **Persistence:** neither Express nor cloudflared currently run as launchd services. Each Claude Code session must start them. Pending: launchd plist setup.
+**This is the mandatory workflow. Prod (`coursework.kitbord.com`) has live learners — never iterate there.**
+
+1. **DEV — work locally on jserver:8788.** `npm run dev:full` builds + serves the SPA and Pages
+   Functions at `http://jserver:8788` (= localhost on Jonathan's Mac, which *is* jserver) against a
+   **LOCAL miniflare R2** — fully isolated from prod, so your reads/writes never touch real learner
+   data. `.dev.vars` (gitignored, never deployed) supplies `DEV_ADMIN_EMAIL` so `/admin` works without
+   a real Cloudflare Access JWT, plus `BOOTSTRAP_ADMINS`, `ANTHROPIC_API_KEY`, terminal/workshop vars.
+
+2. **DATA — pull real prod data into local (optional but preferred for verification).**
+   `npm run sync:dev` snapshots prod R2 → the local miniflare store dev:full reads, so you test
+   against **real learner sessions/lessons/profiles** in isolation. Add `-- --assets` to also pull
+   course files + media (STORAGE). It reads prod through the **Cloudflare REST R2 API** (authed by the
+   token at `~/.coursework-cf-token`) and writes locally; purge-then-copy per bucket = dev mirrors prod
+   exactly. Re-run anytime to refresh. (Do NOT use getPlatformProxy *remote* bindings — the project
+   token lacks Workers edge-preview perms, so they silently fall back to stale local data. See
+   `tasks/lessons.md`.) Real-data testing is now local — it is no longer a reason to deploy.
+
+3. **VERIFY** the change on :8788 against the synced data — drive the actual path, don't assume.
+
+4. **COMMIT** on the working branch, only once it works locally.
+
+5. **RELEASE — deploy to prod deliberately.** `npm run deploy` (= `vite build && wrangler pages deploy
+   dist --project-name coursework --branch main`; **branch `main` = PRODUCTION** → coursework.kitbord.com).
+   Then spot-check prod — the admin UI is behind CF Access, so do it in an authed browser.
+
+**R2 buckets:** `coursework-interview` (binding `INTERVIEW` — sessions/lessons/profiles/glances/admin
+state) and `coursework-assets` (binding `STORAGE` — course files/media). Both bound in wrangler.toml.
+To inspect/mutate the data a *deployed* Function sees, use `wrangler r2 object … --remote` (CLI defaults
+to LOCAL state) or the CF REST R2 API — both work with `~/.coursework-cf-token`.
 
 ---
 
