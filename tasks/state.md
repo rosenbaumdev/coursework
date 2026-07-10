@@ -30,16 +30,21 @@ Last updated: 2026-07-09 (admin progress display + ask-AI objectives; dev-first 
 ## Also This Session — prod→dev R2 sync (test features against real data, isolated)
 - NEW `scripts/sync-prod-to-dev.mjs` + `npm run sync:dev` (`-- --assets` to also pull STORAGE).
   Snapshots prod R2 → local miniflare R2 (the store jserver:8788 reads) so features can be
-  tested against REAL learner data while local writes never touch prod.
-- MECHANISM (no new deps, no S3 creds): wrangler `getPlatformProxy` twice — one with
-  `experimental:{remoteBindings:true}` (reads real buckets, authed by CLOUDFLARE_API_TOKEN /
-  `~/.coursework-cf-token`), one local (writes .wrangler/state). Additive copy; `rm -rf
-  .wrangler/state` first for a pure mirror. INTERVIEW by default; STORAGE only with `--assets`.
-- VERIFIED: synced 13 INTERVIEW objects; local `GET /api/admin/learner/zachary(-test)` reads
-  them; stored ids match current pack (no drift — content faithful).
-- FINDING (heads-up, not acted on): the "12/18 ended-early" record is NOT in prod now — real
-  `zachary` has Day-1 ARTIFACTS but no `day-1.json` lesson; `zachary-test/day-1.json` is an
-  unplayed 0/18 fixture. The ended-early display fix stays proven via the synthetic record.
+  tested against REAL learner data while local writes never touch prod. Purge-then-copy per
+  bucket = dev mirrors prod exactly. INTERVIEW by default; STORAGE only with `--assets`.
+- MECHANISM (no new deps, no S3 creds): READ prod via the Cloudflare REST R2 API (list +
+  object GET, authed by CLOUDFLARE_API_TOKEN / `~/.coursework-cf-token`); WRITE via
+  getPlatformProxy LOCAL bindings (no remote/Workers perms needed).
+- *** CORRECTION of a bad first attempt ***: the v1 script used getPlatformProxy REMOTE
+  bindings (`experimental:{remoteBindings:true}`). That needs a Workers *edge-preview* perm the
+  token lacks, so it SILENTLY fell back to STALE LOCAL data — a no-op "sync" that reported
+  garbage (13 objects, "STORAGE empty", "zachary day-1 gone"). ALL FALSE. See lessons.md.
+- GROUND TRUTH (via REST): prod coursework-interview = 33 objects (learners acme, jodi, sabrina,
+  test-user, zachary, zachary-test); coursework-assets = 35 objects (content-creator + day-0..15).
+  zachary/day-1.json DOES exist: 20 turns, 13 ticked (12 req + 1 bonus), completed+endedIncomplete.
+- VERIFIED after fix: `npm run sync:dev -- --assets` → 68 objects; dev roster = all 8 learners;
+  `GET /api/admin/learner/zachary` → Day1 12/18 endedIncomplete=true 20 turns, Day2 2/8 16 turns
+  — identical to prod. This is ALSO the real-data proof of the ended-early badge fix.
 
 ## Completed Prior Session (names/pronouns key off account, not hardcoded)
 
