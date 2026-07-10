@@ -27,6 +27,20 @@ Last updated: 2026-07-09 (admin progress display + ask-AI objectives; dev-first 
   8788 → commit → `npm run deploy`. Git hygiene DEFERRED: prod runs the `learner-naming-and-
   isolation` branch lineage; local `main` (f02e5a6) is 5 commits stale — fast-forward later.
 
+## Also This Session — prod→dev R2 sync (test features against real data, isolated)
+- NEW `scripts/sync-prod-to-dev.mjs` + `npm run sync:dev` (`-- --assets` to also pull STORAGE).
+  Snapshots prod R2 → local miniflare R2 (the store jserver:8788 reads) so features can be
+  tested against REAL learner data while local writes never touch prod.
+- MECHANISM (no new deps, no S3 creds): wrangler `getPlatformProxy` twice — one with
+  `experimental:{remoteBindings:true}` (reads real buckets, authed by CLOUDFLARE_API_TOKEN /
+  `~/.coursework-cf-token`), one local (writes .wrangler/state). Additive copy; `rm -rf
+  .wrangler/state` first for a pure mirror. INTERVIEW by default; STORAGE only with `--assets`.
+- VERIFIED: synced 13 INTERVIEW objects; local `GET /api/admin/learner/zachary(-test)` reads
+  them; stored ids match current pack (no drift — content faithful).
+- FINDING (heads-up, not acted on): the "12/18 ended-early" record is NOT in prod now — real
+  `zachary` has Day-1 ARTIFACTS but no `day-1.json` lesson; `zachary-test/day-1.json` is an
+  unplayed 0/18 fixture. The ended-early display fix stays proven via the synthetic record.
+
 ## Completed Prior Session (names/pronouns key off account, not hardcoded)
 
 ## Completed This Session (names/pronouns de-assumption — DEPLOYED TO PROD, still uncommitted)
